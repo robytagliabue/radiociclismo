@@ -1,66 +1,59 @@
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
 import { saveRaceResults, savePendingArticles } from './db';
-// Importa il tuo agente (assicurati che il percorso sia corretto)
-import { cyclingAgent } from './agents'; 
+import { cyclingAgent } from './agents'; // Assicurati che il percorso sia corretto nel tuo progetto
 
 export const cyclingWorkflow = createWorkflow({
   name: 'cycling-sync',
   inputs: {
-    raceUrl: z.string().describe('URL di ProCyclingStats della gara'),
+    raceUrl: z.string().describe('URL ProCyclingStats della gara'),
     raceName: z.string().describe('Nome della gara'),
   },
   outputs: {
     success: z.boolean(),
   },
-  // In Mastra v2+, gli step si definiscono nell'oggetto 'steps'
+  // In Mastra v2+, gli step si definiscono come un oggetto 'steps'
   steps: {
-    // STEP 1: Estrazione dati con l'Agente
-    fetchRaceData: {
+    fetchAndProcess: {
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
 
-        // L'agente usa i suoi tool per grattare i dati
+        // L'agente esegue la ricerca e formatta i dati (Articolo + Top 10)
         const result = await cyclingAgent.generate(
-          `Estrai la classifica Top 10 per la gara ${raceName} dall'URL: ${raceUrl}. 
-           Ritorna i dati in formato JSON con: posizione, nome, squadra, distacco.`
+          `Analizza la gara ciclistica "${raceName}" usando l'URL: ${raceUrl}. 
+           1. Scrivi un articolo giornalistico professionale in italiano.
+           2. Estrai la classifica Top 10 ufficiale.
+           
+           Ritorna i dati della classifica in un formato JSON strutturato con: 
+           posizione, nome del corridore, squadra e distacco.`
         );
 
-        // Supponiamo che l'agente restituisca un JSON strutturato
-        const extractedData = JSON.parse(result.text);
-
-        return {
-          externalId: raceUrl.split('/').pop() || 'race-id',
+        // Prepariamo i dati per il database
+        // Nota: Assicurati che il tuo agente sia configurato per restituire 'object' tramite Mastra
+        // o estrai i dati dal testo se necessario.
+        const raceData = {
+          externalId: raceUrl.split('/').pop() || `race-${Date.now()}`,
           name: raceName,
-          results: extractedData.top10, // Array di {position, name, team, gap}
-          articleIt: result.text, // L'articolo generato in italiano
+          results: result.object?.top10 || [], // Array di {position, name, team, gap}
+          contentIt: result.text,
         };
-      },
-    },
 
-    // STEP 2: Salvataggio nel Database (Gestione Gare)
-    saveToDb: {
-      handler: async ({ context }) => {
-        const data = context.getStepResult('fetchRaceData');
-
-        if (!data) throw new Error('Nessun dato ricevuto dallo step precedente');
-
-        // 1. Salviamo i dati atomici per le tabelle delle gare (per radiociclismo.com)
+        // --- AZIONE 1: Caricamento in Gestione Gare (Tabelle races e race_results) ---
         await saveRaceResults({
-          externalId: data.externalId,
-          name: data.name,
-          results: data.results,
+          externalId: raceData.externalId,
+          name: raceData.name,
+          results: raceData.results,
         });
 
-        // 2. Salviamo l'articolo testuale per il blog
+        // --- AZIONE 2: Caricamento Articolo (Tabella published_articles) ---
         await savePendingArticles([
           {
-            slug: data.externalId,
-            titleIt: data.name,
-            contentIt: data.articleIt,
-            titleEn: data.name + " Results", // Esempio semplice
-            contentEn: "Translation pending...",
-          },
+            slug: raceData.externalId,
+            titleIt: raceData.name,
+            contentIt: raceData.contentIt,
+            titleEn: `${raceData.name} - Results`,
+            contentEn: "Translation in progress...",
+          }
         ]);
 
         return { success: true };
@@ -68,6 +61,3 @@ export const cyclingWorkflow = createWorkflow({
     },
   },
 });
-
-// Nota: Il commit() non è più necessario come funzione concatenata in alcune versioni, 
-// l'oggetto restituito da createWorkflow è già pronto.
