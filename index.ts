@@ -1,7 +1,4 @@
 // Suppress Mastra v0.14.1 internal watcher bug:
-// When Inngest calls the SDK handler between steps, Mastra's watch callback
-// fires in setImmediate with payload=undefined, crashing the process.
-// We catch it here and log a warning so the workflow keeps running.
 process.on("uncaughtException", (err) => {
   if (
     err instanceof TypeError &&
@@ -12,7 +9,6 @@ process.on("uncaughtException", (err) => {
     );
     return;
   }
-  // Re-throw anything else so real errors still crash the process
   console.error("💥 [uncaughtException] Unhandled error:", err);
   process.exit(1);
 });
@@ -25,12 +21,12 @@ import pino from "pino";
 import { NonRetriableError } from "inngest";
 import { z } from "zod";
 
-import { sharedPostgresStorage } from "./storage";
-import { inngest, inngestServe, registerManualTrigger } from "./inngest";
-
-import { cyclingAgent } from "./agents/cyclingAgent";
-import { cyclingWorkflow } from "./workflows/cyclingWorkflow";
-import { ensurePublishedArticlesTable } from "./db";
+// AGGIUNTI .js AGLI IMPORT LOCALI (Necessario per Vercel/ESM)
+import { sharedPostgresStorage } from "./storage.js";
+import { inngest, inngestServe, registerManualTrigger } from "./inngest.js";
+import { cyclingAgent } from "./agents/cyclingAgent.js";
+import { cyclingWorkflow } from "./workflows/cyclingWorkflow.js";
+import { ensurePublishedArticlesTable } from "./db.js";
 
 ensurePublishedArticlesTable().catch((err) => {
   console.warn("⚠️ [startup] Could not ensure published_articles table:", err.message);
@@ -81,13 +77,9 @@ class ProductionPinoLogger extends MastraLogger {
 
 export const mastra = new Mastra({
   storage: sharedPostgresStorage,
-  // Register your workflows here
   workflows: { cyclingWorkflow },
   agents: { cyclingAgent },
   bundler: {
-    // A few dependencies are not properly picked up by
-    // the bundler if they are not added directly to the
-    // entrypoint.
     externals: [
       "@slack/web-api",
       "inngest",
@@ -99,7 +91,6 @@ export const mastra = new Mastra({
       "pg",
       "pino",
     ],
-    // sourcemaps are good for debugging.
     sourcemap: true,
   },
   server: {
@@ -120,12 +111,9 @@ export const mastra = new Mastra({
           });
           if (error instanceof MastraError) {
             if (error.id === "AGENT_MEMORY_MISSING_RESOURCE_ID") {
-              // This is typically a non-retirable error. It means that the request was not
-              // setup correctly to pass in the necessary parameters.
               throw new NonRetriableError(error.message, { cause: error });
             }
           } else if (error instanceof z.ZodError) {
-            // Validation errors are never retriable.
             throw new NonRetriableError(error.message, { cause: error });
           }
 
@@ -134,18 +122,11 @@ export const mastra = new Mastra({
       },
     ],
     apiRoutes: [
-      // ======================================================================
-      // Inngest Integration Endpoint
-      // ======================================================================
-      // Integrates Mastra workflows with Inngest for event-driven execution via inngest functions.
       {
         path: "/api/inngest",
         method: "ALL",
         createHandler: async ({ mastra }) => inngestServe({ mastra, inngest }),
       },
-
-      // Add webhook triggers here (see Option 2 above)
-      // Example: ...registerSlackTrigger({ ... })
     ],
   },
   logger:
@@ -160,18 +141,10 @@ export const mastra = new Mastra({
         }),
 });
 
-/*  Sanity check 1: Throw an error if there are more than 1 workflows.  */
-// !!!!!! Do not remove this check. !!!!!!
 if (Object.keys(mastra.getWorkflows()).length > 1) {
-  throw new Error(
-    "More than 1 workflows found. Currently, more than 1 workflows are not supported in the UI, since doing so will cause app state to be inconsistent.",
-  );
+  throw new Error("More than 1 workflows found.");
 }
 
-/*  Sanity check 2: Throw an error if there are more than 1 agents.  */
-// !!!!!! Do not remove this check. !!!!!!
 if (Object.keys(mastra.getAgents()).length > 1) {
-  throw new Error(
-    "More than 1 agents found. Currently, more than 1 agents are not supported in the UI, since doing so will cause app state to be inconsistent.",
-  );
+  throw new Error("More than 1 agents found.");
 }
