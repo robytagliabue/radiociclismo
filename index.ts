@@ -1,12 +1,8 @@
 import { Mastra } from '@mastra/core';
-// Utilizziamo l'estensione .js per la compatibilità con l'ambiente Vercel ESM
+import { createNodeMiddleware } from '@mastra/core'; // Nuovo import necessario
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
-/**
- * Inizializzazione della piattaforma Mastra
- * Registriamo l'agente e il workflow per renderli operativi
- */
 export const mastra = new Mastra({
   agents: {
     cyclingAgent,
@@ -17,16 +13,21 @@ export const mastra = new Mastra({
 });
 
 /**
- * HANDLER DI DEFAULT (Fondamentale per Vercel)
- * Questo risolve l'errore "The default export must be a function or server".
- * Senza questo blocco, Vercel non sa come "rispondere" alle chiamate web.
+ * HANDLER AGGIORNATO PER VERCEL
+ * Ora instrada correttamente le chiamate ai workflow
  */
 const handler = async (req: any, res: any) => {
-  // Risposta di test per verificare che il bot sia online
+  // Se la richiesta va verso i workflow, lasciamo che Mastra la gestisca
+  if (req.url?.includes('/api/workflows') || req.url?.includes('/api/agents')) {
+    const middleware = createNodeMiddleware(mastra);
+    return await middleware(req, res);
+  }
+
+  // Altrimenti, mostra lo stato (come prima)
   return res.status(200).json({ 
     status: 'Radiociclismo AI Engine Online',
-    message: 'Mastra Agent is ready to process race data',
-    version: '2.0.0',
+    message: 'Mastra Agent is ready',
+    version: '2.0.1',
     timestamp: new Date().toISOString()
   });
 };
