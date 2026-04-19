@@ -1,6 +1,7 @@
 import { Agent } from "@mastra/core/agent";
 import { google } from "@ai-sdk/google"; // Switch a Google Gemini
-import { listArticlesTool, deleteArticleTool } from "../tools/radiociclismoTool";
+// CORREZIONE: Importa i tool con .js e percorso relativo alla root
+import { listArticlesTool, deleteArticleTool } from "./radiociclismoTool.js";
 
 export const cyclingAgent = new Agent({
   name: "Cycling Article Agent",
@@ -70,6 +71,6 @@ FORMATO OUTPUT JSON (Sempre e solo JSON valido):
 REGOLE SLUG: Sempre in italiano, include l'anno (es. giro-ditalia-2026-tappa-5-risultati). No parole inglesi.
 `,
 
-  // Utilizzo di Gemini 1.5 Flash: veloce, economico e perfetto per compiti di scrittura strutturata
+  // Utilizzo di Gemini 1.5 Flash: veloce ed economico
   model: google("gemini-1.5-flash"),
 });
