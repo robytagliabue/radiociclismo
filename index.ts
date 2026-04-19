@@ -21,22 +21,22 @@ import pino from "pino";
 import { NonRetriableError } from "inngest";
 import { z } from "zod";
 
-// IMPORT LOCALI CORRETTI (Tutti nella stessa cartella con estensione .js)
+// IMPORT LOCALI (Tutti i file sono nella stessa cartella root)
 import { sharedPostgresStorage } from "./storage.js";
 import { inngest, inngestServe, registerManualTrigger } from "./inngest.js";
 import { cyclingAgent } from "./cyclingAgent.js";
 import { cyclingWorkflow } from "./cyclingWorkflow.js";
 import { ensurePublishedArticlesTable } from "./db.js";
 
-// Inizializzazione DB al boot
+// Inizializzazione tabelle Database
 ensurePublishedArticlesTable().catch((err) => {
   console.warn("⚠️ [startup] Could not ensure published_articles table:", err.message);
 });
 
-// Registrazione del trigger per Inngest
+// Registra il trigger manuale per far partire il workflow da Inngest
 registerManualTrigger(cyclingWorkflow);
 
-// Logger personalizzato per la produzione
+// Configurazione Logger per Produzione (Vercel)
 class ProductionPinoLogger extends MastraLogger {
   protected logger: pino.Logger;
 
@@ -53,7 +53,7 @@ class ProductionPinoLogger extends MastraLogger {
       level: options.level || LogLevel.INFO,
       base: {},
       formatters: {
-        level: (label: string, _number: number) => ({
+        level: (label: string) => ({
           level: label,
         }),
       },
@@ -78,7 +78,7 @@ class ProductionPinoLogger extends MastraLogger {
   }
 }
 
-// CONFIGURAZIONE PRINCIPALE MASTRA
+// ISTANZA PRINCIPALE MASTRA
 export const mastra = new Mastra({
   storage: sharedPostgresStorage,
   workflows: { cyclingWorkflow },
@@ -108,7 +108,7 @@ export const mastra = new Mastra({
         try {
           await next();
         } catch (error) {
-          logger?.error("[Response]", {
+          logger?.error("[Response Error]", {
             method: c.req.method,
             url: c.req.url,
             error,
@@ -145,7 +145,7 @@ export const mastra = new Mastra({
         }),
 });
 
-// Guardrail di sicurezza per evitare conflitti
+// Verifiche di integrità
 if (Object.keys(mastra.getWorkflows()).length > 1) {
   throw new Error("More than 1 workflows found.");
 }
