@@ -1,7 +1,6 @@
-import { PostgresStore } from "@mastra/pg";
+import { PostgresStorage } from "@mastra/core/storage";
 
-// Create a single shared PostgreSQL storage instance
-export const sharedPostgresStorage = new PostgresStore({
-  connectionString:
-    process.env.DATABASE_URL || "postgresql://localhost:5432/mastra",
+// Istanza condivisa per il database Supabase
+export const sharedPostgresStorage = new PostgresStorage({
+  connectionString: process.env.DATABASE_URL!,
 });
