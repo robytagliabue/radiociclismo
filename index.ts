@@ -21,19 +21,22 @@ import pino from "pino";
 import { NonRetriableError } from "inngest";
 import { z } from "zod";
 
-// AGGIUNTI .js AGLI IMPORT LOCALI (Necessario per Vercel/ESM)
+// IMPORT LOCALI CORRETTI (Tutti nella stessa cartella con estensione .js)
 import { sharedPostgresStorage } from "./storage.js";
 import { inngest, inngestServe, registerManualTrigger } from "./inngest.js";
-import { cyclingAgent } from "./agents/cyclingAgent.js";
-import { cyclingWorkflow } from "./workflows/cyclingWorkflow.js";
+import { cyclingAgent } from "./cyclingAgent.js";
+import { cyclingWorkflow } from "./cyclingWorkflow.js";
 import { ensurePublishedArticlesTable } from "./db.js";
 
+// Inizializzazione DB al boot
 ensurePublishedArticlesTable().catch((err) => {
   console.warn("⚠️ [startup] Could not ensure published_articles table:", err.message);
 });
 
+// Registrazione del trigger per Inngest
 registerManualTrigger(cyclingWorkflow);
 
+// Logger personalizzato per la produzione
 class ProductionPinoLogger extends MastraLogger {
   protected logger: pino.Logger;
 
@@ -75,6 +78,7 @@ class ProductionPinoLogger extends MastraLogger {
   }
 }
 
+// CONFIGURAZIONE PRINCIPALE MASTRA
 export const mastra = new Mastra({
   storage: sharedPostgresStorage,
   workflows: { cyclingWorkflow },
@@ -141,6 +145,7 @@ export const mastra = new Mastra({
         }),
 });
 
+// Guardrail di sicurezza per evitare conflitti
 if (Object.keys(mastra.getWorkflows()).length > 1) {
   throw new Error("More than 1 workflows found.");
 }
