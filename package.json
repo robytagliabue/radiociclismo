@@ -6,6 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "mastra dev",
     "build": "mastra build",
+    "start": "node dist/index.js",
     "check": "tsc",
     "check:format": "prettier --check '**/*.ts'",
     "format": "prettier --write '**/*.ts'"
@@ -30,10 +31,11 @@
     "@openrouter/ai-sdk-provider": "^0.4.6",
     "@slack/web-api": "^7.9.3",
     "@types/cheerio": "^0.22.35",
-    "@types/pg": "^8.15.5",
+    "@types/pg": "^8.11.10",
+    "@vercel/node": "^3.2.0",
     "ai": "^4.3.16",
     "axios": "^1.13.4",
-    "cheerio": "^1.2.0",
+    "cheerio": "^1.0.0",
     "dotenv": "^17.2.0",
     "drizzle-zod": "^0.8.3",
     "inngest": "^3.40.2",
@@ -41,16 +43,17 @@
     "openai": "^6.18.0",
     "p-limit": "^7.3.0",
     "p-retry": "^7.1.1",
+    "pg": "^8.11.3",
     "pino": "^9.9.4",
     "tsx": "^4.20.3",
     "zod": "^3.25.76",
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
-    "@types/node": "^24.6.2",
+    "@types/node": "^20.0.0",
     "mastra": "^0.14.0",
     "prettier": "^3.6.2",
     "ts-node": "^10.9.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.3.3"
   }
 }
