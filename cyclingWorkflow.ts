@@ -1,8 +1,9 @@
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
-// Aggiunto .js agli import relativi per risolvere l'errore ERR_MODULE_NOT_FOUND
+// Import con estensione .js necessaria per l'ambiente Vercel (ESM)
+// Puntiamo al file cyclingagent.js (che corrisponde al tuo cyclingagent.ts)
 import { saveRaceResults, savePendingArticles } from './db.js';
-import { cyclingAgent } from './agents.js'; 
+import { cyclingAgent } from './cyclingagent.js'; 
 
 export const cyclingWorkflow = createWorkflow({
   name: 'cycling-sync',
@@ -13,36 +14,38 @@ export const cyclingWorkflow = createWorkflow({
   outputs: {
     success: z.boolean(),
   },
+  // In Mastra v2+, gli step si definiscono come proprietà dell'oggetto 'steps'
   steps: {
     fetchAndProcess: {
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
 
-        // L'agente esegue la ricerca e formatta i dati (Articolo + Top 10)
+        // L'agente esegue la ricerca e genera i contenuti
+        // Utilizziamo .generate() come indicato nella documentazione V2
         const result = await cyclingAgent.generate(
           `Analizza la gara ciclistica "${raceName}" usando l'URL: ${raceUrl}. 
            1. Scrivi un articolo giornalistico professionale in italiano.
            2. Estrai la classifica Top 10 ufficiale.
-           Ritorna i dati della classifica in un formato JSON strutturato con: 
+           Ritorna i dati della classifica in un formato JSON strutturato con i campi: 
            posizione, nome del corridore, squadra e distacco.`
         );
 
-        // Prepariamo i dati per il database di Radiociclismo
+        // Prepariamo i dati per il database di Radiociclismo.com
         const raceData = {
           externalId: raceUrl.split('/').pop() || `race-${Date.now()}`,
           name: raceName,
-          results: result.object?.top10 || [], 
-          contentIt: result.text,
+          results: result.object?.top10 || [], // Array strutturato per la tabella race_results
+          contentIt: result.text,             // Testo dell'articolo per la tabella published_articles
         };
 
-        // --- AZIONE 1: Caricamento in Gestione Gare (Tabelle races e race_results) ---
+        // --- AZIONE 1: Popolamento Gestione Gare (Tabelle tecniche races e race_results) ---
         await saveRaceResults({
           externalId: raceData.externalId,
           name: raceData.name,
           results: raceData.results,
         });
 
-        // --- AZIONE 2: Caricamento Articolo (Tabella published_articles) ---
+        // --- AZIONE 2: Salvataggio Articolo (Tabella published_articles) ---
         await savePendingArticles([
           {
             slug: raceData.externalId,
