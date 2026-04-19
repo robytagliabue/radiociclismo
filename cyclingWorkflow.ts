@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Import con estensione .js necessaria per l'ambiente Vercel (ESM)
 // Puntiamo al file cyclingagent.js (che corrisponde al tuo cyclingagent.ts)
 import { saveRaceResults, savePendingArticles } from './db.js';
-import { cyclingAgent } from './cyclingagent.js'; 
+import { cyclingAgent } from './cyclingAgent.js'; 
 
 export const cyclingWorkflow = createWorkflow({
   name: 'cycling-sync',
