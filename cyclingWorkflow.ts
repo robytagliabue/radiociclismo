@@ -1,20 +1,100 @@
 import { z } from "zod";
 import axios from "axios";
 
-// IMPORT LOCALI CORRETTI (Percorsi root e estensione .js)
-import { createStep, createWorkflow } from "./inngest-config.js";
+// --- IMPORT LOCALI CORRETTI ---
+// Cambiato da inngest-config.js a inngest.js per coerenza con il nuovo nome file
+import { createStep, createWorkflow } from "./inngest.js"; 
 import { cyclingAgent } from "./cyclingAgent.js";
-import { webSearchRacesTool, fetchRaceNarrative } from "./webSearchRacesTool.js";
+import { webSearchRacesTool } from "./webSearchRacesTool.js";
 import { 
-  getPool, 
-  ensurePublishedArticlesTable, 
-  savePendingArticles, 
-  loadPendingArticles, 
-  removePendingArticle, 
-  clearPendingArticles, 
   acquireWorkflowLock, 
   releaseWorkflowLock 
 } from "./db.js";
+
+const rankingEntrySchema = z.object({
+  position: z.union([z.number(), z.string()]),
+  name: z.string(),
+  team: z.string().optional().default(""),
+  time: z.string().optional().default(""),
+});
+
+const articleSchema = z.object({
+  titleIt: z.string(),
+  subtitleIt: z.string().optional().default(""),
+  excerptIt: z.string(),
+  contentIt: z.string(),
+  titleEn: z.string(),
+  subtitleEn: z.string().optional().default(""),
+  excerptEn: z.string(),
+  contentEn: z.string(),
+  slug: z.string(),
+  hashtags: z.string(),
+  winnerName: z.string(),
+  raceName: z.string(),
+  rankings: z.array(rankingEntrySchema).optional().default([]),
+});
+
+// --- STEP 1: SEARCH RACES ---
+const searchRacesStep = createStep({
+  id: "search-races",
+  execute: async ({ mastra }) => {
+    const logger = mastra?.getLogger();
+    
+    // Gestione Lock per evitare esecuzioni doppie
+    try {
+      const locked = await acquireWorkflowLock();
+      if (!locked) {
+        return { found: false, searchResults: "" };
+      }
+    } catch (e) {
+      console.warn("Lock error", e);
+    }
+
+    const result = await webSearchRacesTool.execute({
+      context: {},
+      mastra: mastra as any,
+      runId: "workflow-search",
+      threadId: "workflow",
+      resourceId: "workflow",
+      runtimeContext: {} as any,
+    });
+
+    return {
+      found: result?.found || false,
+      searchResults: result?.searchResults || "",
+    };
+  },
+});
+
+// --- STEP 2: GENERATE ARTICLES ---
+const generateArticlesStep = createStep({
+  id: "generate-articles",
+  inputSchema: z.object({
+    found: z.boolean(),
+    searchResults: z.string(),
+  }),
+  execute: async ({ inputData, mastra }) => {
+    if (!inputData.found) return { articles: [] };
+
+    const prompt = `Analizza questi risultati e genera articoli strutturati in JSON: ${inputData.searchResults}`;
+    
+    try {
+      const response = await cyclingAgent.generate(prompt);
+      return { articles: response.object ? [response.object] : [] };
+    } catch (error) {
+      return { articles: [] };
+    }
+  },
+});
+
+// --- WORKFLOW DEFINITION ---
+export const cyclingWorkflow = createWorkflow({
+  name: "cyclingWorkflow",
+  triggerSchema: z.object({}),
+})
+  .step(searchRacesStep)
+  .then(generateArticlesStep)
+  .commit();
 
 const rankingEntrySchema = z.object({
   position: z.union([z.number(), z.string()]),
