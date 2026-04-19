@@ -1,3 +1,28 @@
+// ... (import invariati)
+
+export const cyclingWorkflow = createWorkflow({
+  name: 'cycling-sync',
+  inputs: {
+    raceUrl: z.string().describe('URL ProCyclingStats della gara'),
+    raceName: z.string().describe('Nome della gara'),
+  },
+  // ...
+  steps: {
+    fetchAndProcess: {
+      handler: async ({ context }) => {
+        const { raceUrl, raceName } = context.inputs;
+
+        // Istruzione potenziata per distinguere Uomini/Donne
+        const result = await cyclingAgent.generate(
+          `Analizza la gara "${raceName}" dall'URL: ${raceUrl}. 
+           ATTENZIONE: Verifica se si tratta della gara maschile o femminile (Women). 
+           Estrai la Top 10 corretta e scrivi un articolo professionale in italiano 
+           specificando chiaramente la categoria nell'articolo e nel titolo.`
+        );
+
+        // Il resto del salvataggio rimane invariato...
+// ...
+
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
 // Import con estensione .js necessaria per l'ambiente Vercel (ESM)
