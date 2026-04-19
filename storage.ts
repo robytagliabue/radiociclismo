@@ -1,11 +1,12 @@
 import { PostgresStore } from "@mastra/pg";
 
-// Verifica che la variabile d'ambiente esista
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL non configurata nelle variabili d'ambiente di Vercel");
+// Usiamo solo la variabile d'ambiente senza alternative locali
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error("ERRORE: DATABASE_URL non trovata nelle variabili d'ambiente!");
 }
 
-// In @mastra/pg la classe corretta si chiama PostgresStore
 export const sharedPostgresStorage = new PostgresStore({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: connectionString,
 });
