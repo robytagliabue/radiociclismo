@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-// --- IMPORT LOCALI CORRETTI ---
-// Nota: usiamo "./inngest.js" perché abbiamo rinominato il file per index.ts
+// --- IMPORT LOCALI ---
 import { createStep, createWorkflow } from "./inngest.js"; 
 import { cyclingAgent } from "./cyclingAgent.js";
 import { webSearchRacesTool } from "./webSearchRacesTool.js";
@@ -11,6 +10,7 @@ import {
   savePendingArticles 
 } from "./db.js";
 
+// Dichiarazione UNICA dello schema
 const rankingEntrySchema = z.object({
   position: z.union([z.number(), z.string()]),
   name: z.string(),
@@ -39,16 +39,14 @@ const searchRacesStep = createStep({
   id: "search-races",
   execute: async ({ mastra }) => {
     const logger = mastra?.getLogger();
-    
-    // 1. Acquisizione Lock
     const locked = await acquireWorkflowLock();
+    
     if (!locked) {
-      logger?.warn("🔒 Workflow già in esecuzione o lock attivo.");
+      logger?.warn("🔒 Lock attivo, salto esecuzione.");
       return { found: false, searchResults: "" };
     }
 
     try {
-      // 2. Esecuzione Tool di ricerca
       const result = await webSearchRacesTool.execute({
         context: {},
         mastra: mastra as any,
@@ -63,13 +61,12 @@ const searchRacesStep = createStep({
         searchResults: result?.searchResults || "",
       };
     } catch (error) {
-      logger?.error("❌ Errore durante la ricerca gare", { error });
       return { found: false, searchResults: "" };
     }
   },
 });
 
-// --- STEP 2: GENERAZIONE ARTICOLI ---
+// --- STEP 2: GENERAZIONE ---
 const generateArticlesStep = createStep({
   id: "generate-articles",
   inputSchema: z.object({
@@ -85,29 +82,23 @@ const generateArticlesStep = createStep({
     }
 
     try {
-      const prompt = `Analizza questi dati di ciclismo e scrivi un articolo professionale: ${inputData.searchResults}`;
-      
-      const response = await cyclingAgent.generate(prompt);
+      const response = await cyclingAgent.generate(
+        `Genera un articolo JSON da questi dati: ${inputData.searchResults}`
+      );
       
       if (response.object) {
-        // Salviamo nel DB come "pending" invece di pubblicare subito
         await savePendingArticles([response.object]);
-        logger?.info("✅ Articolo generato e salvato in attesa di revisione.");
         return { articles: [response.object] };
       }
-      
       return { articles: [] };
     } catch (error) {
-      logger?.error("❌ Errore generazione articolo", { error });
       return { articles: [] };
     } finally {
-      // Rilasciamo sempre il lock alla fine
       await releaseWorkflowLock();
     }
   },
 });
 
-// --- DEFINIZIONE WORKFLOW ---
 export const cyclingWorkflow = createWorkflow({
   name: "cyclingWorkflow",
   triggerSchema: z.object({}),
