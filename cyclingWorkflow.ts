@@ -1,6 +1,6 @@
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
-// Aggiunto .js all'import per compatibilità Vercel ESM
+// Aggiunto .js agli import relativi per risolvere l'errore ERR_MODULE_NOT_FOUND
 import { saveRaceResults, savePendingArticles } from './db.js';
 import { cyclingAgent } from './agents.js'; 
 
@@ -18,11 +18,13 @@ export const cyclingWorkflow = createWorkflow({
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
 
-        // L'agente esegue la ricerca e formatta i dati
+        // L'agente esegue la ricerca e formatta i dati (Articolo + Top 10)
         const result = await cyclingAgent.generate(
-          `Analizza la gara "${raceName}" dall'URL: ${raceUrl}. 
-           Estrai la Top 10 e scrivi un articolo. 
-           Ritorna i dati della classifica in formato JSON strutturato.`
+          `Analizza la gara ciclistica "${raceName}" usando l'URL: ${raceUrl}. 
+           1. Scrivi un articolo giornalistico professionale in italiano.
+           2. Estrai la classifica Top 10 ufficiale.
+           Ritorna i dati della classifica in un formato JSON strutturato con: 
+           posizione, nome del corridore, squadra e distacco.`
         );
 
         // Prepariamo i dati per il database di Radiociclismo
@@ -33,21 +35,21 @@ export const cyclingWorkflow = createWorkflow({
           contentIt: result.text,
         };
 
-        // 1. Caricamento in Gestione Gare (Tabelle tecniche)
+        // --- AZIONE 1: Caricamento in Gestione Gare (Tabelle races e race_results) ---
         await saveRaceResults({
           externalId: raceData.externalId,
           name: raceData.name,
           results: raceData.results,
         });
 
-        // 2. Caricamento Articolo (Tabella news)
+        // --- AZIONE 2: Caricamento Articolo (Tabella published_articles) ---
         await savePendingArticles([
           {
             slug: raceData.externalId,
             titleIt: raceData.name,
             contentIt: raceData.contentIt,
-            titleEn: `${raceData.name} Results`,
-            contentEn: "Translation pending...",
+            titleEn: `${raceData.name} - Results`,
+            contentEn: "Translation in progress...",
           }
         ]);
 
