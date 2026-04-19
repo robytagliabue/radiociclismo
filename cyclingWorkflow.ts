@@ -1,108 +1,73 @@
-import { z } from "zod";
-
-// --- IMPORT LOCALI ---
-import { createStep, createWorkflow } from "./inngest.js"; 
-import { cyclingAgent } from "./cyclingAgent.js";
-import { webSearchRacesTool } from "./webSearchRacesTool.js";
-import { 
-  acquireWorkflowLock, 
-  releaseWorkflowLock,
-  savePendingArticles 
-} from "./db.js";
-
-// Dichiarazione UNICA dello schema
-const rankingEntrySchema = z.object({
-  position: z.union([z.number(), z.string()]),
-  name: z.string(),
-  team: z.string().optional().default(""),
-  time: z.string().optional().default(""),
-});
-
-const articleSchema = z.object({
-  titleIt: z.string(),
-  subtitleIt: z.string().optional().default(""),
-  excerptIt: z.string(),
-  contentIt: z.string(),
-  titleEn: z.string(),
-  subtitleEn: z.string().optional().default(""),
-  excerptEn: z.string(),
-  contentEn: z.string(),
-  slug: z.string(),
-  hashtags: z.string(),
-  winnerName: z.string(),
-  raceName: z.string(),
-  rankings: z.array(rankingEntrySchema).optional().default([]),
-});
-
-// --- STEP 1: RICERCA GARE ---
-const searchRacesStep = createStep({
-  id: "search-races",
-  execute: async ({ mastra }) => {
-    const logger = mastra?.getLogger();
-    const locked = await acquireWorkflowLock();
-    
-    if (!locked) {
-      logger?.warn("🔒 Lock attivo, salto esecuzione.");
-      return { found: false, searchResults: "" };
-    }
-
-    try {
-      const result = await webSearchRacesTool.execute({
-        context: {},
-        mastra: mastra as any,
-        runId: "workflow-search",
-        threadId: "workflow",
-        resourceId: "workflow",
-        runtimeContext: {} as any,
-      });
-
-      return {
-        found: result?.found || false,
-        searchResults: result?.searchResults || "",
-      };
-    } catch (error) {
-      return { found: false, searchResults: "" };
-    }
-  },
-});
-
-// --- STEP 2: GENERAZIONE ---
-const generateArticlesStep = createStep({
-  id: "generate-articles",
-  inputSchema: z.object({
-    found: z.boolean(),
-    searchResults: z.string(),
-  }),
-  execute: async ({ inputData, mastra }) => {
-    const logger = mastra?.getLogger();
-    
-    if (!inputData.found || !inputData.searchResults) {
-      await releaseWorkflowLock();
-      return { articles: [] };
-    }
-
-    try {
-      const response = await cyclingAgent.generate(
-        `Genera un articolo JSON da questi dati: ${inputData.searchResults}`
-      );
-      
-      if (response.object) {
-        await savePendingArticles([response.object]);
-        return { articles: [response.object] };
-      }
-      return { articles: [] };
-    } catch (error) {
-      return { articles: [] };
-    } finally {
-      await releaseWorkflowLock();
-    }
-  },
-});
+import { createWorkflow } from '@mastra/core';
+import { z } from 'zod';
+import { saveRaceResults, savePendingArticles } from './db';
+// Importa il tuo agente (assicurati che il percorso sia corretto)
+import { cyclingAgent } from './agents'; 
 
 export const cyclingWorkflow = createWorkflow({
-  name: "cyclingWorkflow",
-  triggerSchema: z.object({}),
-})
-  .step(searchRacesStep)
-  .then(generateArticlesStep)
-  .commit();
+  name: 'cycling-sync',
+  inputs: {
+    raceUrl: z.string().describe('URL di ProCyclingStats della gara'),
+    raceName: z.string().describe('Nome della gara'),
+  },
+  outputs: {
+    success: z.boolean(),
+  },
+  // In Mastra v2+, gli step si definiscono nell'oggetto 'steps'
+  steps: {
+    // STEP 1: Estrazione dati con l'Agente
+    fetchRaceData: {
+      handler: async ({ context }) => {
+        const { raceUrl, raceName } = context.inputs;
+
+        // L'agente usa i suoi tool per grattare i dati
+        const result = await cyclingAgent.generate(
+          `Estrai la classifica Top 10 per la gara ${raceName} dall'URL: ${raceUrl}. 
+           Ritorna i dati in formato JSON con: posizione, nome, squadra, distacco.`
+        );
+
+        // Supponiamo che l'agente restituisca un JSON strutturato
+        const extractedData = JSON.parse(result.text);
+
+        return {
+          externalId: raceUrl.split('/').pop() || 'race-id',
+          name: raceName,
+          results: extractedData.top10, // Array di {position, name, team, gap}
+          articleIt: result.text, // L'articolo generato in italiano
+        };
+      },
+    },
+
+    // STEP 2: Salvataggio nel Database (Gestione Gare)
+    saveToDb: {
+      handler: async ({ context }) => {
+        const data = context.getStepResult('fetchRaceData');
+
+        if (!data) throw new Error('Nessun dato ricevuto dallo step precedente');
+
+        // 1. Salviamo i dati atomici per le tabelle delle gare (per radiociclismo.com)
+        await saveRaceResults({
+          externalId: data.externalId,
+          name: data.name,
+          results: data.results,
+        });
+
+        // 2. Salviamo l'articolo testuale per il blog
+        await savePendingArticles([
+          {
+            slug: data.externalId,
+            titleIt: data.name,
+            contentIt: data.articleIt,
+            titleEn: data.name + " Results", // Esempio semplice
+            contentEn: "Translation pending...",
+          },
+        ]);
+
+        return { success: true };
+      },
+    },
+  },
+});
+
+// Nota: Il commit() non è più necessario come funzione concatenata in alcune versioni, 
+// l'oggetto restituito da createWorkflow è già pronto.
