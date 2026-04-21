@@ -1,16 +1,11 @@
 {
-  "name": "radiociclismo-ai-engine",
-  "version": "2.0.5",
+  "name": "radiociclismo-ai",
   "type": "module",
-  "scripts": {
-    "build": "echo 'Skip build step'"
-  },
+  "version": "2.0.5",
+  "scripts": { "build": "echo 'build skipped'" },
   "dependencies": {
     "@mastra/core": "^2.0.0",
     "@ai-sdk/google": "^1.0.0",
     "zod": "^3.23.8"
-  },
-  "engines": {
-    "node": ">=20.0.0"
   }
 }
