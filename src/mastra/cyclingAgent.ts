@@ -1,23 +1,14 @@
-import { Agent } from "@mastra/core";
+import { Agent } from "mastra"; // Cambiato da @mastra/core a mastra
 import { google } from "@ai-sdk/google";
-import { z } from "zod"; // Fondamentale per definire lo schema di output
+import { z } from "zod";
 import { listArticlesTool, deleteArticleTool } from "./radiociclismoTool.js";
-import { webSearchRacesTool } from './webSearchRacesTool.js'; // Aggiungi questo import
+import { webSearchRacesTool } from "./webSearchRacesTool.js";
 
-export const cyclingAgent = new Agent({
-  // ... altre impostazioni
-  tools: {
-    listArticlesTool,
-    deleteArticleTool,
-    webSearchRacesTool, // <--- Aggiungilo qui!
-  },
-  // ...
-});
 export const cyclingAgent = new Agent({
   name: "Cycling Article Agent",
   instructions: `
     Sei un Redattore Sportivo Senior specializzato in ciclismo per Radiociclismo.com.
-    Il tuo compito è creare articoli completi, accurati e coinvolgenti utilizzando esclusivamente i fatti reali forniti.
+    Il tuo compito è creare articoli completi, accurati e coinvolgenti utilizzando esclusivamente i fatti reali forniti dai tool.
 
     REGOLA FONDAMENTALE — INTEGRITÀ E ESCLUSIVITÀ:
     - Tu sei un reporter di Radiociclismo.com. RIELABORA i fatti con le tue parole.
@@ -41,8 +32,8 @@ export const cyclingAgent = new Agent({
   tools: {
     listArticlesTool,
     deleteArticleTool,
+    webSearchRacesTool, // Ora è inserito correttamente
   },
-  // CORREZIONE: In Mastra v2 si usa 'schema' dentro 'outputs' con Zod
   outputs: {
     schema: z.object({
       top10: z.array(
