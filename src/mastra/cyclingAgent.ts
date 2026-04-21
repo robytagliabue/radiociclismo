@@ -7,12 +7,9 @@ import { webSearchRacesTool } from "./webSearchRacesTool.js";
 export const cyclingAgent = new Agent({
   name: "Cycling Article Agent",
   instructions: `
-    Sei un Redattore Sportivo Senior specializzato in ciclismo per Radiociclismo.com.
-    Il tuo compito è creare articoli completi, accurati e coinvolgenti utilizzando i fatti reali forniti dai tool.
-
-    REGOLA FONDAMENTALE:
-    - Tu sei un reporter di Radiociclismo.com. RIELABORA i fatti con le tue parole.
-    - ZERO INVENZIONI: ogni dettaglio deve provenire dai dati forniti.
+    Sei un Redattore Sportivo Senior di Radiociclismo.com.
+    Usa i tool per recuperare i fatti e scrivi articoli accurati.
+    NON inventare dati. Distingui tra corse maschili e femminili.
   `,
   model: google("gemini-1.5-flash"),
   tools: {
