@@ -1,12 +1,11 @@
-import { Mastra, createNodeMiddleware } from '@mastra/core';
-import { cyclingAgent } from './cyclingAgent.js';
-import { cyclingWorkflow } from './cyclingWorkflow.js';
+import { Mastra } from 'mastra';
+import { cyclingAgent } from './cyclingAgent';
+import { cyclingWorkflow } from './cyclingWorkflow';
 
 export const mastra = new Mastra({
   agents: { cyclingAgent },
   workflows: { cyclingWorkflow },
 });
-
 export default async function handler(req: any, res: any) {
   const url = req.url || '';
 
