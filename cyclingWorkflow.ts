@@ -1,4 +1,6 @@
-// ... (import invariati)
+import { createWorkflow } from '@mastra/core';
+import { z } from 'zod';
+import { cyclingAgent } from './cyclingAgent.js';
 
 export const cyclingWorkflow = createWorkflow({
   name: 'cycling-sync',
@@ -6,23 +8,31 @@ export const cyclingWorkflow = createWorkflow({
     raceUrl: z.string().describe('URL ProCyclingStats della gara'),
     raceName: z.string().describe('Nome della gara'),
   },
-  // ...
   steps: {
     fetchAndProcess: {
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
 
-        // Istruzione potenziata per distinguere Uomini/Donne
+        // L'agente analizza l'URL per capire se è maschile o femminile
         const result = await cyclingAgent.generate(
-          `Analizza la gara "${raceName}" dall'URL: ${raceUrl}. 
-           ATTENZIONE: Verifica se si tratta della gara maschile o femminile (Women). 
-           Estrai la Top 10 corretta e scrivi un articolo professionale in italiano 
-           specificando chiaramente la categoria nell'articolo e nel titolo.`
+          `Analizza la gara ciclistica "${raceName}" visitando l'URL: ${raceUrl}.
+           
+           COMPITI CRITICI:
+           1. Identifica se la gara è CATEGORIA MASCHILE o FEMMINILE (cerca "Women" o "-we-" nell'URL).
+           2. Estrai la classifica Top 10 reale senza inventare dati.
+           3. Verifica tramite i tuoi tool se esiste già un articolo nel database per questa gara.
+           4. Scrivi un articolo in italiano con un titolo che specifichi chiaramente la categoria (es. [DONNE] o [UOMINI]).
+           5. Salva i risultati e l'articolo su Supabase.`
         );
 
-        // Il resto del salvataggio rimane invariato...
-// ...
-
+        return {
+          success: true,
+          data: result.text,
+        };
+      },
+    },
+  },
+});
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
 // Import con estensione .js necessaria per l'ambiente Vercel (ESM)
