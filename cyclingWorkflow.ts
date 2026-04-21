@@ -1,58 +1,39 @@
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
-// Import con estensione .js necessaria per l'ambiente Vercel (ESM)
+import { cyclingAgent } from './cyclingAgent.js';
 import { saveRaceResults, savePendingArticles } from './db.js';
-import { cyclingAgent } from './cyclingAgent.js'; 
 
 export const cyclingWorkflow = createWorkflow({
   name: 'cycling-sync',
   inputs: {
-    raceUrl: z.string().describe('URL ProCyclingStats della gara'),
-    raceName: z.string().describe('Nome della gara'),
-  },
-  outputs: {
-    success: z.boolean(),
+    raceUrl: z.string(),
+    raceName: z.string(),
   },
   steps: {
     fetchAndProcess: {
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
 
-        // L'agente esegue la ricerca e genera i contenuti
         const result = await cyclingAgent.generate(
-          `Analizza la gara ciclistica "${raceName}" usando l'URL: ${raceUrl}. 
-           1. Identifica se è una gara Uomini o Donne.
-           2. Scrivi un articolo giornalistico professionale in italiano.
-           3. Estrai la classifica Top 10 ufficiale.
-           Ritorna i dati della classifica in un formato JSON strutturato con i campi: 
-           posizione, nome del corridore, squadra e distacco.`
+          `Analizza la gara ${raceName} dall'URL ${raceUrl}. 
+           Estrai la Top 10 e scrivi un articolo unico in italiano e inglese.`
         );
 
-        // Prepariamo i dati per il database
-        const raceData = {
-          externalId: raceUrl.split('/').filter(Boolean).pop() || `race-${Date.now()}`,
-          name: raceName,
-          results: result.object?.top10 || [], 
-          contentIt: result.text,
-        };
+        const raceId = raceUrl.split('/').filter(Boolean).pop() || 'race';
 
-        // Salva i risultati tecnici (classifiche)
         await saveRaceResults({
-          externalId: raceData.externalId,
-          name: raceData.name,
-          results: raceData.results,
+          externalId: raceId,
+          name: raceName,
+          results: result.object?.top10 || [],
         });
 
-        // Salva l'articolo per Radiociclismo.com
-        await savePendingArticles([
-          {
-            slug: raceData.externalId,
-            titleIt: raceData.name,
-            contentIt: raceData.contentIt,
-            titleEn: `${raceData.name} - Results`,
-            contentEn: "Translation in progress...",
-          }
-        ]);
+        await savePendingArticles([{
+          slug: raceId,
+          titleIt: raceName,
+          contentIt: result.text,
+          titleEn: raceName + " Results",
+          contentEn: "Auto-translated content"
+        }]);
 
         return { success: true };
       },
