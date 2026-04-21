@@ -5,30 +5,17 @@ import { cyclingAgent } from './cyclingAgent.js';
 export const cyclingWorkflow = createWorkflow({
   name: 'cycling-sync',
   inputs: {
-    raceUrl: z.string().describe('URL ProCyclingStats della gara'),
-    raceName: z.string().describe('Nome della gara'),
+    raceUrl: z.string(),
+    raceName: z.string(),
   },
   steps: {
     fetchAndProcess: {
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
-
-        // L'agente analizza l'URL per capire se è maschile o femminile
         const result = await cyclingAgent.generate(
-          `Analizza la gara ciclistica "${raceName}" visitando l'URL: ${raceUrl}.
-           
-           COMPITI CRITICI:
-           1. Identifica se la gara è CATEGORIA MASCHILE o FEMMINILE (cerca "Women" o "-we-" nell'URL).
-           2. Estrai la classifica Top 10 reale senza inventare dati.
-           3. Verifica tramite i tuoi tool se esiste già un articolo nel database per questa gara.
-           4. Scrivi un articolo in italiano con un titolo che specifichi chiaramente la categoria (es. [DONNE] o [UOMINI]).
-           5. Salva i risultati e l'articolo su Supabase.`
+          `Analizza la gara ${raceName} dall'URL ${raceUrl}. Distingui tra Uomini e Donne, estrai la Top 10 e salva su Supabase.`
         );
-
-        return {
-          success: true,
-          data: result.text,
-        };
+        return { success: true, text: result.text };
       },
     },
   },
