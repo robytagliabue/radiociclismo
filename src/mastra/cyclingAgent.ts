@@ -2,7 +2,17 @@ import { Agent } from "@mastra/core";
 import { google } from "@ai-sdk/google";
 import { z } from "zod"; // Fondamentale per definire lo schema di output
 import { listArticlesTool, deleteArticleTool } from "./radiociclismoTool.js";
+import { webSearchRacesTool } from './webSearchRacesTool.js'; // Aggiungi questo import
 
+export const cyclingAgent = new Agent({
+  // ... altre impostazioni
+  tools: {
+    listArticlesTool,
+    deleteArticleTool,
+    webSearchRacesTool, // <--- Aggiungilo qui!
+  },
+  // ...
+});
 export const cyclingAgent = new Agent({
   name: "Cycling Article Agent",
   instructions: `
