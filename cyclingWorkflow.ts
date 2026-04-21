@@ -1,29 +1,6 @@
 import { createWorkflow } from '@mastra/core';
 import { z } from 'zod';
-import { cyclingAgent } from './cyclingAgent.js';
-
-export const cyclingWorkflow = createWorkflow({
-  name: 'cycling-sync',
-  inputs: {
-    raceUrl: z.string(),
-    raceName: z.string(),
-  },
-  steps: {
-    fetchAndProcess: {
-      handler: async ({ context }) => {
-        const { raceUrl, raceName } = context.inputs;
-        const result = await cyclingAgent.generate(
-          `Analizza la gara ${raceName} dall'URL ${raceUrl}. Distingui tra Uomini e Donne, estrai la Top 10 e salva su Supabase.`
-        );
-        return { success: true, text: result.text };
-      },
-    },
-  },
-});
-import { createWorkflow } from '@mastra/core';
-import { z } from 'zod';
 // Import con estensione .js necessaria per l'ambiente Vercel (ESM)
-// Puntiamo al file cyclingagent.js (che corrisponde al tuo cyclingagent.ts)
 import { saveRaceResults, savePendingArticles } from './db.js';
 import { cyclingAgent } from './cyclingAgent.js'; 
 
@@ -36,38 +13,37 @@ export const cyclingWorkflow = createWorkflow({
   outputs: {
     success: z.boolean(),
   },
-  // In Mastra v2+, gli step si definiscono come proprietà dell'oggetto 'steps'
   steps: {
     fetchAndProcess: {
       handler: async ({ context }) => {
         const { raceUrl, raceName } = context.inputs;
 
         // L'agente esegue la ricerca e genera i contenuti
-        // Utilizziamo .generate() come indicato nella documentazione V2
         const result = await cyclingAgent.generate(
           `Analizza la gara ciclistica "${raceName}" usando l'URL: ${raceUrl}. 
-           1. Scrivi un articolo giornalistico professionale in italiano.
-           2. Estrai la classifica Top 10 ufficiale.
+           1. Identifica se è una gara Uomini o Donne.
+           2. Scrivi un articolo giornalistico professionale in italiano.
+           3. Estrai la classifica Top 10 ufficiale.
            Ritorna i dati della classifica in un formato JSON strutturato con i campi: 
            posizione, nome del corridore, squadra e distacco.`
         );
 
-        // Prepariamo i dati per il database di Radiociclismo.com
+        // Prepariamo i dati per il database
         const raceData = {
-          externalId: raceUrl.split('/').pop() || `race-${Date.now()}`,
+          externalId: raceUrl.split('/').filter(Boolean).pop() || `race-${Date.now()}`,
           name: raceName,
-          results: result.object?.top10 || [], // Array strutturato per la tabella race_results
-          contentIt: result.text,             // Testo dell'articolo per la tabella published_articles
+          results: result.object?.top10 || [], 
+          contentIt: result.text,
         };
 
-        // --- AZIONE 1: Popolamento Gestione Gare (Tabelle tecniche races e race_results) ---
+        // Salva i risultati tecnici (classifiche)
         await saveRaceResults({
           externalId: raceData.externalId,
           name: raceData.name,
           results: raceData.results,
         });
 
-        // --- AZIONE 2: Salvataggio Articolo (Tabella published_articles) ---
+        // Salva l'articolo per Radiociclismo.com
         await savePendingArticles([
           {
             slug: raceData.externalId,
