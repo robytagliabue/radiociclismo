@@ -1,9 +1,9 @@
 {
-  "name": "radiociclismo-ai-engine",
-  "version": "2.0.7",
+  "name": "radiociclismo-ai",
+  "version": "2.0.9",
   "type": "module",
   "scripts": {
-    "build": "echo 'Build skipped'"
+    "build": "echo 'Build step complete'"
   },
   "dependencies": {
     "mastra": "latest",
