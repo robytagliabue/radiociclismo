@@ -1,0 +1,17 @@
+{
+  "name": "radiociclismo-ai-engine",
+  "version": "2.1.5",
+  "type": "module",
+  "scripts": {
+    "build": "npx mastra build",
+    "start": "npx mastra start"
+  },
+  "dependencies": {
+    "mastra": "latest",
+    "@ai-sdk/google": "latest",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
