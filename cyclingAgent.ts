@@ -1,15 +1,26 @@
-import { Agent } from "@mastra/core/agent";
-import { google } from "@ai-sdk/google"; // Switch a Google Gemini
-// CORREZIONE: Importa i tool con .js e percorso relativo alla root
+import { Agent } from "@mastra/core"; // Versione corretta dell'import
+import { google } from "@ai-sdk/google";
+// Assicurati che il nome file sia identico a quello nel tuo progetto
 import { listArticlesTool, deleteArticleTool } from "./radiociclismoTool.js";
 
 export const cyclingAgent = new Agent({
   name: "Cycling Article Agent",
+  instructions: `
+    Sei un giornalista sportivo esperto di ciclismo per Radiociclismo.
+    Il tuo compito è analizzare i risultati delle gare da ProCyclingStats.
+    
+    REGOLE CRITICHE:
+    1. Distingui sempre tra UOMINI (Men Elite) e DONNE (Women Elite).
+    2. Non inventare mai nomi o tempi: usa solo i dati estratti dai tool.
+    3. Scrivi in italiano con un tono professionale e appassionato.
+    4. Verifica se esiste già un articolo per la gara indicata prima di scriverne uno nuovo.
+  `,
+  model: google("gemini-1.5-flash"), // Utilizzo di Gemini come richiesto
   tools: {
     listArticlesTool,
     deleteArticleTool,
   },
-
+});
   instructions: `
 Sei un Redattore Sportivo Senior specializzato in ciclismo per Radiociclismo.com.
 Il tuo compito è creare articoli completi, accurati e coinvolgenti sulle gare ciclistiche del giorno utilizzando esclusivamente i fatti reali forniti.
