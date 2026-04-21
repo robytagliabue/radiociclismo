@@ -1,13 +1,9 @@
 {
   "name": "radiociclismo-ai-engine",
-  "version": "2.0.4",
-  "description": "AI Agent per l'automazione dei risultati ciclistici",
+  "version": "2.0.5",
   "type": "module",
-  "main": "index.js",
   "scripts": {
-    "dev": "mastra dev",
-    "start": "mastra start",
-    "build": "mastra build"
+    "build": "echo 'Skip build step'"
   },
   "dependencies": {
     "@mastra/core": "^2.0.0",
