@@ -1,9 +1,10 @@
 {
   "name": "radiociclismo-ai-engine",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
   "scripts": {
-    "build": "echo 'Build optimization for Node 22'"
+    "build": "mastra build", 
+    "start": "mastra start"
   },
   "dependencies": {
     "mastra": "latest",
