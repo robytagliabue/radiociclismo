@@ -1,9 +1,9 @@
 {
-  "name": "radiociclismo-ai",
-  "version": "2.0.9",
+  "name": "radiociclismo-ai-engine",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
-    "build": "echo 'Build step complete'"
+    "build": "echo 'Build optimization for Node 22'"
   },
   "dependencies": {
     "mastra": "latest",
@@ -11,6 +11,6 @@
     "zod": "^3.23.8"
   },
   "engines": {
-    "node": "20.x"
+    "node": ">=22.13.0"
   }
 }
