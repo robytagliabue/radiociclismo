@@ -1,12 +1,10 @@
-import { serve } from "inngest/vercel";
+import { serve } from "inngest/next"; // Usa /next anche su Vercel, è più compatibile
 import { mastra } from "../src/mastra/index.js";
 import { inngest } from "../src/mastra/inngest.js";
 
-// Questo espone il workflow a Inngest Cloud
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
-    // Aggancia il workflow che abbiamo creato
     mastra.getWorkflow("cyclingWorkflow").createInngestFunction(),
   ],
 });
