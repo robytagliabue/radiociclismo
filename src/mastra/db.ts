@@ -101,10 +101,12 @@ export async function savePendingArticles(articles: any[]) {
   const client = await pool.connect();
   try {
     for (const art of articles) {
+      // Corretto il template literal qui sotto per evitare errori di build
+      const slug = art.slug || `race-${Date.now()}`;
       await client.query(
         `INSERT INTO published_articles (slug, title_it, content_it, title_en, content_en) 
          VALUES ($1, $2, $3, $4, $5) ON CONFLICT (slug) DO NOTHING`,
-        [art.slug || \`race-\${Date.now()}\`, art.titleIt, art.contentIt, art.titleEn, art.contentEn]
+        [slug, art.titleIt, art.contentIt, art.titleEn, art.contentEn]
       );
     }
   } finally { client.release(); }
