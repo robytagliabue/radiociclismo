@@ -3,9 +3,9 @@ import { z } from 'zod';
 
 export const webSearchRacesTool = createTool({
   id: 'web-search-races',
-  description: 'Cerca risultati su ProCyclingStats superando i blocchi Cloudflare.',
+  description: 'Recupera dati da ProCyclingStats bypassando Cloudflare.',
   inputSchema: z.object({
-    url: z.string().url().describe('URL della gara su ProCyclingStats'),
+    url: z.string().url(),
   }),
   outputSchema: z.object({
     data: z.string(),
@@ -23,13 +23,12 @@ export const webSearchRacesTool = createTool({
       'Sec-Fetch-User': '?1',
       'Upgrade-Insecure-Requests': '1'
     };
-
     try {
       const response = await fetch(input.url, { headers });
       const html = await response.text();
-      return { data: html.substring(0, 10000) }; 
+      return { data: html.substring(0, 10000) };
     } catch (error) {
-      return { data: `Errore durante il recupero: ${error instanceof Error ? error.message : String(error)}` };
+      return { data: "Errore nel fetch dati" };
     }
   },
 });
