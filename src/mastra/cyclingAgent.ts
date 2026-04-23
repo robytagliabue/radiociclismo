@@ -1,10 +1,12 @@
 import { Agent } from 'mastra';
 import { google } from '@ai-sdk/google';
 
+const model = google('gemini-1.5-flash');
+
 export const cyclingAgent = new Agent({
   name: 'Cycling Analyst',
   instructions: 'Expert',
-  model: google('gemini-1.5-flash')
+  model
 });
   name: "Cycling Article Agent",
   instructions: `
