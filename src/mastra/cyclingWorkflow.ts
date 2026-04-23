@@ -1,7 +1,7 @@
-import { workflow as MastraWorkflow } from 'mastra';
+import { Workflow } from 'mastra';
 import { z } from 'zod';
 
-export const cyclingWorkflow = new MastraWorkflow({
+export const cyclingWorkflow = new Workflow({
   name: 'cycling-sync',
   triggerSchema: z.object({
     raceUrl: z.string(),
@@ -14,4 +14,3 @@ export const cyclingWorkflow = new MastraWorkflow({
   },
 })
 .commit();
-
