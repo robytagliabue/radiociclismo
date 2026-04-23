@@ -3,8 +3,8 @@ import { google } from '@ai-sdk/google';
 
 export const cyclingAgent = new Agent({
   name: 'Cycling Analyst',
-  instructions: 'Sei un esperto di ciclismo professionistico.',
-  model: google('gemini-2.0-flash-exp'),
+  instructions: 'Expert',
+  model: google('gemini-1.5-flash')
 });
   name: "Cycling Article Agent",
   instructions: `
