@@ -1,8 +1,8 @@
-import { Mastra } from 'mastra';
+import { mastra as MastraApp } from 'mastra';
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
-export const mastra = new Mastra({
+export const mastra = new MastraApp({
   agents: { cyclingAgent },
   workflows: { cyclingWorkflow },
 });
