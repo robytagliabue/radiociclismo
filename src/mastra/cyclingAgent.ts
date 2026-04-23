@@ -1,15 +1,18 @@
 import { Agent } from 'mastra';
 import { google } from '@ai-sdk/google';
 
-const agent = new Agent({
-  name: 'Cycling Analyst',
-  instructions: 'Expert',
-  model: google('gemini-1.5-flash'),
-});
-export const cyclingAgent = agent;
-  name: 'Cycling Analyst',
-  instructions: 'Expert',
-  model
+/**
+ * Definiamo le costanti separatamente per evitare errori di parsing 
+ * della CLI di Mastra su Vercel (errore "Expected ; but found :")
+ */
+const agentName = 'Cycling Analyst';
+const agentInstructions = 'Sei un esperto di ciclismo professionistico. Analizza i dati delle corse e scrivi articoli tecnici ma coinvolgenti.';
+const agentModel = google('gemini-1.5-flash');
+
+export const cyclingAgent = new Agent({
+  name: agentName,
+  instructions: agentInstructions,
+  model: agentModel,
 });
   name: "Cycling Article Agent",
   instructions: `
