@@ -1,6 +1,6 @@
 import { Mastra } from 'mastra';
-import { cyclingAgent } from './cyclingAgent.ts';
-import { cyclingWorkflow } from './cyclingWorkflow.ts';
+import { cyclingAgent } from './cyclingAgent.js';
+import { cyclingWorkflow } from './cyclingWorkflow.js';
 
 export const mastra = new Mastra({
   agents: { cyclingAgent },
