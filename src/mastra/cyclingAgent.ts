@@ -1,10 +1,15 @@
-import { Agent } from "mastra";
-import { google } from "@ai-sdk/google";
-import { z } from "zod";
-import { listArticlesTool, deleteArticleTool } from "./radiociclismoTool.js";
-import { webSearchRacesTool } from "./webSearchRacesTool.js";
+import { agent as MastraAgent } from 'mastra';
+import { google } from '@ai-sdk/google';
+// import { webSearchRacesTool } from './webSearchRacesTool.js';
 
-export const cyclingAgent = new Agent({
+export const cyclingAgent = new MastraAgent({
+  name: 'Cycling Analyst',
+  instructions: 'Sei un esperto di ciclismo professionistico...',
+  model: google('gemini-2.0-flash-exp'),
+  enabledTools: { 
+    // webSearchRaces: webSearchRacesTool 
+  },
+});
   name: "Cycling Article Agent",
   instructions: `
     Sei un Redattore Sportivo Senior di Radiociclismo.com.
