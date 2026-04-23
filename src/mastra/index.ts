@@ -6,6 +6,7 @@ export const mastra = new Mastra({
   agents: { cyclingAgent },
   workflows: { cyclingWorkflow },
 });
+
 export default async function handler(req: any, res: any) {
   const url = req.url || '';
 
