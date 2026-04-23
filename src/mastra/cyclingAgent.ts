@@ -1,19 +1,10 @@
 import { Agent } from 'mastra';
 import { google } from '@ai-sdk/google';
-
-/**
- * Definiamo le costanti separatamente per evitare errori di parsing 
- * della CLI di Mastra su Vercel (errore "Expected ; but found :")
- */
-const agentName = 'Cycling Analyst';
-const agentInstructions = 'Sei un esperto di ciclismo professionistico. Analizza i dati delle corse e scrivi articoli tecnici ma coinvolgenti.';
-const agentModel = google('gemini-1.5-flash');
+import { z } from 'zod';
+// Assicurati che questi tool siano importati correttamente dal file dove sono definiti
+// import { listArticlesTool, deleteArticleTool, webSearchRacesTool } from './radiociclismoTool.js';
 
 export const cyclingAgent = new Agent({
-  name: agentName,
-  instructions: agentInstructions,
-  model: agentModel,
-});
   name: "Cycling Article Agent",
   instructions: `
     Sei un Redattore Sportivo Senior di Radiociclismo.com.
@@ -21,11 +12,16 @@ export const cyclingAgent = new Agent({
     NON inventare dati. Distingui tra corse maschili e femminili.
   `,
   model: google("gemini-1.5-flash"),
-  tools: {
+  /* Scommenta i tools qui sotto quando sei sicuro che i file siano pronti 
+  o lasciali così se vuoi solo testare il build
+  */
+  /*
+  enabledTools: {
     listArticlesTool,
     deleteArticleTool,
     webSearchRacesTool,
   },
+  */
   outputs: {
     schema: z.object({
       top10: z.array(
