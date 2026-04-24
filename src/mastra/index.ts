@@ -3,49 +3,31 @@ import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { Inngest } from 'inngest';
-import { serve as serveInngest } from 'inngest/hono';
 
 // 1. Inizializzazione Mastra
+// Assicurati che cyclingWorkflow sia esportato correttamente nel suo file
 export const mastra = new Mastra({
   id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
-// 2. Configurazione Inngest
-const inngest = new Inngest({ id: 'radiociclismo-ai' });
-
-/**
- * Creiamo la funzione Inngest manualmente. 
- * Questo sostituisce il metodo .getInngestFunction() che falliva.
- */
-const cyclingInngestFn = inngest.createFunction(
-  { id: 'cycling-workflow-function' },
-  { event: 'cycling/run' }, // Questo è l'evento che scatenerà il workflow
-  async ({ event, step }) => {
-    // Chiamiamo il workflow di Mastra direttamente
-    const workflow = mastra.getWorkflow('cyclingWorkflow');
-    return await workflow.execute({ input: event.data });
-  }
-);
-
 const app = new Hono();
 
-// 3. Rotta Inngest
-app.all('/api/inngest', (c) => {
-  const handler = serveInngest({
-    client: inngest,
-    functions: [cyclingInngestFn],
-    signingKey: process.env.INNGEST_SIGNING_KEY,
-  });
-  return handler(c);
+// 2. Rotta Inngest - La versione più semplice e documentata
+app.all('/api/inngest', async (c) => {
+  // In molte versioni di Mastra, l'handler si crea così:
+  const handler = (mastra as any).createInngestHandler();
+  return handler(c.req.raw);
 });
 
+// Rotta base
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
+// 3. Avvio Server
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server in ascolto sulla porta ${port}`);
+
+console.log(`🚀 Server pronto sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
