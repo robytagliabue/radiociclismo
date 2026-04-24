@@ -1,4 +1,4 @@
-import { Workflow } from 'mastra'; // Torna alla maiuscola
+import { Workflow } from '@mastra/core';
 // Se continua a dare errore TS2305, prova così:
 // import { mastra as Mastra, agent as Agent, workflow as Workflow } from 'mastra';
 import { z } from 'zod';
