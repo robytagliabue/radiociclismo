@@ -13,11 +13,15 @@ export const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-// 2. Configurazione Inngest
-const inngest = new Inngest({ id: 'radiociclismo-ai' });
+// 2. Configurazione Inngest FORZATA
+// Passiamo esplicitamente le chiavi leggendole da process.env
+const inngest = new Inngest({ 
+  id: 'radiociclismo-ai',
+  eventKey: process.env.INNGEST_EVENT_KEY,
+});
 
 /**
- * CREAZIONE FUNZIONE INNGEST - SINTASSI CORRETTA v4
+ * Funzione Inngest
  */
 const cyclingInngestFn = inngest.createFunction(
   { 
@@ -33,11 +37,12 @@ const cyclingInngestFn = inngest.createFunction(
 
 const app = new Hono();
 
-// 3. Rotta Inngest
+// 3. Rotta Inngest con Signing Key FORZATA
 app.all('/api/inngest', async (c) => {
   const handler = serveInngest({
     client: inngest,
     functions: [cyclingInngestFn],
+    // Qui forziamo l'uso della chiave che hai già su Railway
     signingKey: process.env.INNGEST_SIGNING_KEY,
   });
   return handler(c);
