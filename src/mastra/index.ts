@@ -1,4 +1,3 @@
-// Sostituisci la prima riga con questa:
 import { Mastra } from 'mastra'; 
 // Se continua a dare errore, Mastra consiglia di usare l'export 'mastra' come classe:
 // import { mastra as Mastra } from 'mastra';
