@@ -4,6 +4,7 @@ import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { serve as serveInngest } from 'inngest/hono';
+import { Inngest } from 'inngest';
 
 // 1. Inizializzazione Mastra
 export const mastra = new Mastra({
@@ -12,29 +13,34 @@ export const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-const app = new Hono();
-
 /**
- * 2. Rotta Inngest Universale
- * In molte versioni di Mastra, mastra.inngest contiene già tutto il necessario
+ * 2. Inizializzazione MANUALE del client Inngest
+ * Questo risolve l'errore 'apiBaseUrl' di undefined
  */
-app.use('/api/inngest', async (c, next) => {
-  // Recuperiamo le funzioni in modo dinamico
-  const inngestFunctions = (mastra as any).getWorkflowInngestFunctions?.() || [];
-  const inngestClient = (mastra as any).inngest || (mastra as any).inngestClient;
-
-  const handler = serveInngest({
-    client: inngestClient,
-    functions: inngestFunctions,
-  });
-  
-  return handler(c, next);
+const inngestClient = new Inngest({ 
+  id: 'radiociclismo-ai'
 });
 
-// Rotta di cortesia
+const app = new Hono();
+
+// 3. Rotta Inngest corretta
+app.all('/api/inngest', async (c) => {
+  // Prendiamo le funzioni dal workflow
+  const functions = (mastra as any).getWorkflowInngestFunctions?.() || [];
+  
+  const handler = serveInngest({
+    client: inngestClient,
+    functions: functions,
+    signingKey: process.env.INNGEST_SIGNING_KEY, // Passiamo la chiave esplicitamente
+  });
+  
+  return handler(c);
+});
+
+// Rotta base
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
-// 3. Avvio Server
+// 4. Avvio Server
 const port = Number(process.env.PORT) || 8080;
 console.log(`🚀 Server in ascolto sulla porta ${port}`);
 
