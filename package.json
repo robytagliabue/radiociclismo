@@ -1,14 +1,26 @@
-"scripts": {
+{
+  "name": "radiociclismo-ai-engine",
+  "version": "2.1.12",
+  "type": "module",
+  "scripts": {
     "build": "echo 'Skipping mastra build...'",
     "start": "npx tsx src/mastra/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "latest",
+    "@mastra/core": "latest",
+    "ai": "latest",
+    "axios": "latest",
     "inngest": "latest",
     "mastra": "latest",
-    "@mastra/core": "latest",
     "tsx": "latest",
-    "axios": "latest",
-    "zod": "latest",
-    "@ai-sdk/google": "latest",
-    "ai": "latest"
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/pg": "^8.11.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
   }
+}
