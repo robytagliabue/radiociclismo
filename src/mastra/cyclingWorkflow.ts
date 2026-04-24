@@ -1,10 +1,10 @@
-import { workflow as Workflow } from 'mastra'; 
+import { Workflow } from 'mastra'; // Torna alla maiuscola
 // Se continua a dare errore TS2305, prova così:
 // import { mastra as Mastra, agent as Agent, workflow as Workflow } from 'mastra';
 import { z } from 'zod';
 import { cyclingAgent } from './cyclingAgent.js';
 
-export const cyclingWorkflow = new Workflow({
+export const cyclingWorkflow = new (Workflow as any)({
   name: 'cycling-sync',
   triggerSchema: z.object({
     raceUrl: z.string().url(),
