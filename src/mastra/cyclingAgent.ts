@@ -1,4 +1,4 @@
-import { Agent } from '@mastra/core';
+import { Agent } from 'mastra'; // Torna a 'mastra' invece di '@mastra/core'
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
 
