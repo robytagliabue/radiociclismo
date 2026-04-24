@@ -13,20 +13,18 @@ export const mastra = new Mastra({
 
 const app = new Hono();
 
-// 2. Creiamo l'handler UNA VOLTA SOLA all'avvio
-// Usiamo un trucco per assicurarci che Mastra sia pronto
-const inngestHandler = mastra.createInngestHandler();
+/**
+ * 2. Creazione dell'handler
+ * Nelle versioni recenti si trova sotto mastra.inngest
+ */
+const inngestHandler = mastra.inngest.createHandler();
 
 app.all('/api/inngest', async (c) => {
   try {
-    // Usiamo l'handler già creato
     return await inngestHandler(c.req.raw);
   } catch (err) {
-    console.error('❌ Errore critico Inngest:', err);
-    return c.json({ 
-      error: 'Inngest error', 
-      details: err instanceof Error ? err.message : String(err) 
-    }, 500);
+    console.error('❌ Errore Inngest:', err);
+    return c.json({ error: 'Inngest error', details: String(err) }, 500);
   }
 });
 
