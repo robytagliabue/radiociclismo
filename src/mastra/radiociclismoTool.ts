@@ -1,11 +1,8 @@
-import { createTool } from 'mastra'; // Torna a createTool (maiuscola interna)
+import { createTool } from 'mastra';
 import { z } from "zod";
 import axios from "axios";
 
-export const listArticlesTool = createTool({
-  id: 'list-articles',
-  // ... resto del codice
-// Funzione helper per il cookie di sessione (usata internamente dai tool)
+// 1. Spostiamo la funzione helper in alto, fuori dai tool
 async function getSessionCookie(): Promise<string> {
   const username = process.env.RC_USERNAME;
   const password = process.env.RC_PASSWORD;
@@ -36,7 +33,8 @@ async function getSessionCookie(): Promise<string> {
   }
 }
 
-export const loginRadiociclismoTool = createTool({
+// 2. Definizione dei Tool
+export const loginRadiociclismoTool = (createTool as any)({
   id: "login-radiociclismo",
   description: "Logs into the Radiociclismo admin panel.",
   inputSchema: z.object({}),
@@ -50,7 +48,7 @@ export const loginRadiociclismoTool = createTool({
   },
 });
 
-export const createArticleTool = createTool({
+export const createArticleTool = (createTool as any)({
   id: "create-article",
   description: "Creates a new article on Radiociclismo.com.",
   inputSchema: z.object({
@@ -66,7 +64,7 @@ export const createArticleTool = createTool({
     author: z.string(),
     hashtags: z.string(),
   }),
-  execute: async ({ input }) => {
+  execute: async ({ input }: { input: any }) => {
     try {
       const articleData = {
         slug: input.slug,
@@ -79,7 +77,7 @@ export const createArticleTool = createTool({
         author: input.author || "AI Agent",
         publishAt: new Date().toISOString(),
         images: input.imageUrl ? [input.imageUrl] : [],
-        hashtags: input.hashtags ? input.hashtags.split(",").map((h) => h.trim()) : [],
+        hashtags: input.hashtags ? input.hashtags.split(",").map((h: string) => h.trim()) : [],
       };
 
       const response = await axios.post(
@@ -104,7 +102,7 @@ export const createArticleTool = createTool({
   },
 });
 
-export const listArticlesTool = createTool({
+export const listArticlesTool = (createTool as any)({
   id: "list-articles",
   description: "Lists all articles on Radiociclismo.com.",
   inputSchema: z.object({}),
@@ -128,13 +126,13 @@ export const listArticlesTool = createTool({
   },
 });
 
-export const deleteArticleTool = createTool({
+export const deleteArticleTool = (createTool as any)({
   id: "delete-article",
   description: "Deletes an article by ID.",
   inputSchema: z.object({
     articleId: z.string(),
   }),
-  execute: async ({ input }) => {
+  execute: async ({ input }: { input: any }) => {
     try {
       const sessionCookie = await getSessionCookie();
       await axios.delete(`https://radiociclismo.com/api/admin/articles/${input.articleId}`, {
