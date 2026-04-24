@@ -1,6 +1,6 @@
-import { Mastra } from 'mastra'; 
-// Se continua a dare errore, Mastra consiglia di usare l'export 'mastra' come classe:
-// import { mastra as Mastra } from 'mastra';
+import { Mastra, Agent, Workflow } from 'mastra'; 
+// Se continua a dare errore TS2305, prova così:
+// import { mastra as Mastra, agent as Agent, workflow as Workflow } from 'mastra';
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
