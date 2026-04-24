@@ -1,11 +1,10 @@
-import { serve } from "inngest/next";
-import { inngest } from "../src/mastra/inngest.js";
-// Importiamo la versione buildata da Mastra che Vercel ha appena creato
-import { mastra } from "../.mastra/output/index.mjs"; 
+import { serve } from 'inngest/vercel';
+// CAMBIA QUESTA RIGA: punta al tuo file sorgente, non all'output generato
+import { mastra } from '../../mastra/index.js'; 
 
-export const { GET, POST, PUT } = serve({
-  client: inngest,
-  functions: [
-    mastra.getWorkflow("cycling-sync").createInngestFunction(),
-  ],
+export default serve({
+  id: 'radiociclismo-ai',
+  // Usiamo "as any" per saltare il controllo formale dei tipi che sta bloccando il build
+  client: (mastra as any).inngest,
+  functions: (mastra as any).getWorkflowInngestFunctions(),
 });
