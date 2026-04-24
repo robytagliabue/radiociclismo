@@ -1,20 +1,23 @@
-import { Mastra, createNodeMiddleware } from '@mastra/core'; // Usa @mastra/core se mastra dà errore
+import { Mastra, createNodeMiddleware } from '@mastra/core';
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
+// 1. Inizializzazione Mastra
 export const mastra = new Mastra({
   agents: { cyclingAgent },
   workflows: { cyclingWorkflow },
 });
 
+// 2. Handler per l'interfaccia di controllo e API
 export default async function handler(req: any, res: any) {
   const url = req.url || '';
+
+  // Gestione rotte API di Mastra
   if (url.includes('/api/')) {
     const middleware = createNodeMiddleware(mastra);
     return await middleware(req, res);
   }
-  // ... resto del tuo HTML ...
-}
+
   // Interfaccia grafica (HTML)
   res.setHeader('Content-Type', 'text/html');
   return res.status(200).send(`
@@ -52,7 +55,7 @@ export default async function handler(req: any, res: any) {
           if(!url) return alert('Inserisci un URL');
           
           status.style.display = 'block';
-          status.innerText = '🚀 Agente in sella... analizzo i dati della corsa.';
+          status.innerText = '🚀 Agente in sella... analizzo i dati.';
           
           try {
             const res = await fetch('/api/workflows/cycling-sync/execute', {
@@ -63,7 +66,7 @@ export default async function handler(req: any, res: any) {
             const data = await res.json();
             status.innerText = '🏁 Traguardo raggiunto! Articolo generato.';
           } catch (e) {
-            status.innerText = '⚠️ Caduta meccanica: Errore durante la generazione.';
+            status.innerText = '⚠️ Errore durante la generazione.';
           }
         }
       </script>
