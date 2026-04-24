@@ -4,7 +4,6 @@ import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { serve as serveInngest } from 'inngest/hono';
-import { Inngest } from 'inngest';
 
 // 1. Inizializzazione Mastra
 export const mastra = new Mastra({
@@ -13,25 +12,23 @@ export const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-// 2. Inizializzazione Client Inngest
-const inngestClient = new Inngest({ 
-  id: 'radiociclismo-ai' 
-});
-
 const app = new Hono();
 
-// 3. Rotta Inngest - DEFINITIVA
+// 2. Rotta Inngest - Usiamo il metodo integrato di Mastra che è più sicuro
 app.all('/api/inngest', async (c) => {
-  // Trasformiamo il workflow in funzione Inngest in modo esplicito
-  const cyclingInngestFn = cyclingWorkflow.getInngestFunction();
-
-  const handler = serveInngest({
-    client: inngestClient,
-    functions: [cyclingInngestFn], // La passiamo direttamente qui
-    signingKey: process.env.INNGEST_SIGNING_KEY,
-  });
-  
-  return handler(c);
+  try {
+    // Mastra ha un gestore interno già pronto, proviamo a usarlo direttamente
+    const handler = mastra.createInngestHandler();
+    return await handler(c.req.raw);
+  } catch (err) {
+    console.error('❌ ERRORE DURANTE IL HANDLER:', err);
+    
+    // Se fallisce, proviamo a ricostruire la risposta manualmente per Inngest
+    return c.json({
+      error: 'Inngest synchronization failed',
+      message: err instanceof Error ? err.message : String(err)
+    }, 500);
+  }
 });
 
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
