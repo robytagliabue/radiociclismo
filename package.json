@@ -7,7 +7,8 @@
     "start": "npx tsx src/mastra/index.ts"
   },
   "dependencies": {
-    "@hono/node-server": "latest"
+    "@hono/node-server": "latest",
+    "hono": "latest",
     "@mastra/core": "latest",
     "mastra": "latest",
     "@ai-sdk/google": "latest",
@@ -22,10 +23,6 @@
   "overrides": {
     "react": "19.0.0-rc-65a56d0e-20241020",
     "react-dom": "19.0.0-rc-65a56d0e-20241020"
-  },
-  "devDependencies": {
-    "@types/node": "^22.13.0",
-    "@types/pg": "^8.11.0"
   },
   "engines": {
     "node": ">=22.13.0"
