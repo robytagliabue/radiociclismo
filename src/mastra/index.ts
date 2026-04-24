@@ -4,35 +4,34 @@ import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 
-// 1. Inizializzazione di Mastra
-// L'ID deve corrispondere a quello che Inngest si aspetta
+// 1. Inizializzazione esplicita
 export const mastra = new Mastra({
+  // Diamo un ID chiaro all'app
+  id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
-// 2. Creazione del server Hono
 const app = new Hono();
 
-/**
- * Questa è la rotta magica. 
- * Invece di scrivere noi la risposta, usiamo il gestore di Mastra
- * che "parla" perfettamente la lingua di Inngest.
- */
+// 2. Rotta Inngest con gestione degli errori
 app.all('/api/inngest', async (c) => {
-  const handler = mastra.getInngestHandler();
-  return handler(c.req.raw); 
+  try {
+    const handler = mastra.getInngestHandler();
+    // Importante: passiamo la richiesta e Mastra si occupa del resto
+    return await handler(c.req.raw);
+  } catch (err) {
+    // Se c'è un errore 500, lo vedremo nei log di Railway
+    console.error('❌ Errore durante il sync con Inngest:', err);
+    return c.json({ error: 'Internal Server Error', message: err instanceof Error ? err.message : String(err) }, 500);
+  }
 });
 
-/**
- * Rotta di cortesia per vedere se il server è vivo
- */
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
-// 3. Porta e Avvio
 const port = Number(process.env.PORT) || 8080;
 
-console.log(`🚀 Server in fuga sulla porta ${port}`);
+console.log(`🚀 Server in ascolto sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
