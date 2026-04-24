@@ -6,11 +6,13 @@
     "build": "npx mastra build --dir src/mastra",
     "start": "npx mastra start"
   },
-  "dependencies": {
+"dependencies": {
     "inngest": "latest",
     "mastra": "latest",
     "axios": "latest",
-    "zod": "latest"
+    "zod": "latest",
+    "@ai-sdk/google": "latest",
+    "ai": "latest"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
