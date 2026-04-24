@@ -1,4 +1,6 @@
-import { createTool } from 'mastra';
+import { createTool } from 'mastra'; 
+// Se dà errore:
+// import { tool as createTool } from 'mastra';
 import { z } from 'zod';
 
 export const webSearchRacesTool = createTool({
