@@ -1,4 +1,4 @@
-import { Workflow } from '@mastra/core';
+import { Workflow } from 'mastra'; // Torna a 'mastra'
 import { z } from 'zod';
 import { cyclingAgent } from './cyclingAgent.js';
 
