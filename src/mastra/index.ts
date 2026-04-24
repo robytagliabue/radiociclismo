@@ -1,6 +1,6 @@
 import { Mastra } from '@mastra/core';
-import { cyclingAgent } from './cyclingAgent.js';
-import { cyclingWorkflow } from './cyclingWorkflow.js';
+import { cyclingAgent } from './cyclingAgent';
+import { cyclingWorkflow } from './cyclingWorkflow';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 
