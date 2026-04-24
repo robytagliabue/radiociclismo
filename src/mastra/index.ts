@@ -6,22 +6,32 @@ import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as serveInngest } from 'inngest/hono';
 
-// 1. Inizializzazione Mastra
+/**
+ * 1. INIZIALIZZAZIONE MASTRA
+ */
 export const mastra = new Mastra({
   id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
-// 2. Client Inngest - Passiamo TUTTO esplicitamente
+/**
+ * 2. CONFIGURAZIONE INNGEST
+ * Passiamo l'Event Key esplicitamente. Se non la trova, userà una stringa vuota 
+ * per evitare il crash, ma il log ci avviserà.
+ */
 const inngest = new Inngest({ 
   id: 'radiociclismo-ai',
-  eventKey: process.env.INNGEST_EVENT_KEY,
+  eventKey: process.env.INNGEST_EVENT_KEY || '',
 });
 
-const cyclingFn = inngest.createFunction(
+/**
+ * 3. DEFINIZIONE FUNZIONE (Sintassi Rigida v4)
+ */
+const cyclingInngestFn = inngest.createFunction(
   { 
-    id: 'cycling-workflow',
+    id: 'cycling-workflow', 
+    name: 'Cycling Workflow',
     triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] 
   },
   async ({ event }) => {
@@ -32,28 +42,44 @@ const cyclingFn = inngest.createFunction(
 
 const app = new Hono();
 
-// 3. Rotta Inngest - Forziamo i parametri che Inngest vede come "UNKNOWN"
-app.all('/api/inngest', async (c) => {
+/**
+ * 4. ROTTA INNGEST CON DEBUG INTEGRATO
+ */
+app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
   const signingKey = process.env.INNGEST_SIGNING_KEY;
-  
-  // Se Railway non sta passando la chiave, il Sync fallirà sempre
+  const envMode = process.env.NODE_ENV || 'development';
+
+  // LOG DI EMERGENZA: Vedrai questi nei log di Railway durante il Sync
+  console.log('--- [DEBUG INNGEST] ---');
+  console.log(`Metodo: ${c.req.method}`);
+  console.log(`Ambiente: ${envMode}`);
+  console.log(`Chiave Signing presente: ${!!signingKey}`);
   if (!signingKey) {
-    console.error('❌ ERRORE CRITICO: INNGEST_SIGNING_KEY non trovata nelle variabili!');
+    console.error('❌ ERRORE: La INNGEST_SIGNING_KEY è assente su Railway!');
   }
+  console.log('-----------------------');
 
   const handler = serveInngest({
     client: inngest,
-    functions: [cyclingFn],
+    functions: [cyclingInngestFn],
     signingKey: signingKey,
   });
   
   return handler(c);
 });
 
-app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
+/**
+ * 5. ROTTA DI TEST
+ */
+app.get('/', (c) => {
+  return c.text(`Radiociclismo AI is LIVE! Port: ${process.env.PORT || 8080}`);
+});
 
+/**
+ * 6. AVVIO SERVER
+ */
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server in ascolto sulla porta ${port}`);
+console.log(`🚀 Server in fuga sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
