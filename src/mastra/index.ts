@@ -13,42 +13,37 @@ export const mastra = new Mastra({
 
 const app = new Hono();
 
-// 2. Rotta Inngest "Indistruttibile"
+// 2. Rotta Inngest per Hono
 app.all('/api/inngest', async (c) => {
   try {
-    // Proviamo i diversi modi in cui Mastra espone il gestore Inngest
-    let handler;
-
-    if (typeof (mastra as any).createInngestHandler === 'function') {
-      handler = (mastra as any).createInngestHandler();
-    } else if ((mastra as any).inngest && typeof (mastra as any).inngest.createHandler === 'function') {
-      handler = (mastra as any).inngest.createHandler();
-    } else {
-      throw new Error('Impossibile trovare il gestore Inngest nell’oggetto Mastra');
-    }
-
-    return await handler(c.req.raw);
+    // Recuperiamo l'handler
+    const handler = mastra.createInngestHandler();
+    
+    /**
+     * CRUCIALE: In Hono dobbiamo passare la richiesta 
+     * e gestire la risposta in modo che Inngest la riconosca.
+     */
+    const response = await handler(c.req.raw);
+    return response;
+    
   } catch (err) {
-    console.error('❌ Errore durante il sync con Inngest:', err);
+    console.error('❌ ERRORE CRITICO INNGEST:', err);
     return c.json({ 
-      error: 'Inngest Configuration Error', 
-      details: err instanceof Error ? err.message : String(err) 
+      error: 'Inngest Error', 
+      message: err instanceof Error ? err.message : String(err) 
     }, 500);
   }
 });
 
-// Rotta di test per il browser
+// Rotta base
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
-// 3. Gestione Porta e Avvio
 const port = Number(process.env.PORT) || 8080;
 
-console.log(`🚀 Radiociclismo AI in fuga sulla porta ${port}...`);
+console.log(`🚀 Server in ascolto sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
   port: port,
   hostname: '0.0.0.0',
-}, (info) => {
-  console.log(`✅ Server pronto su http://${info.address}:${info.port}`);
 });
