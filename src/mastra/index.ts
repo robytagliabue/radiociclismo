@@ -5,7 +5,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 
 // 1. Inizializzazione di Mastra
-const mastra = new Mastra({
+// L'ID deve corrispondere a quello che Inngest si aspetta
+export const mastra = new Mastra({
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
@@ -14,34 +15,27 @@ const mastra = new Mastra({
 const app = new Hono();
 
 /**
- * Rotta per Inngest: questa è quella che Railway 
- * e Inngest devono contattare.
+ * Questa è la rotta magica. 
+ * Invece di scrivere noi la risposta, usiamo il gestore di Mastra
+ * che "parla" perfettamente la lingua di Inngest.
  */
 app.all('/api/inngest', async (c) => {
-  return c.json({ 
-    status: 'Radiociclismo AI Engine Active',
-    timestamp: new Date().toISOString(),
-    service: 'Mastra'
-  });
+  const handler = mastra.getInngestHandler();
+  return handler(c.req.raw); 
 });
 
 /**
- * Rotta base per testare il browser
+ * Rotta di cortesia per vedere se il server è vivo
  */
-app.get('/', (c) => {
-  return c.text('Radiociclismo AI Bot is Running! 🚴‍♂️');
-});
+app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
-// 3. Gestione della porta (Priorità a 8080 come visto nei tuoi log)
+// 3. Porta e Avvio
 const port = Number(process.env.PORT) || 8080;
 
-// 4. Avvio del server fisico
-console.log(`🚀 Radiociclismo AI in fuga sulla porta ${port}...`);
+console.log(`🚀 Server in fuga sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
   port: port,
-  hostname: '0.0.0.0', // Obbligatorio per rendere il server visibile fuori dal container
-}, (info) => {
-  console.log(`✅ Server ascolta su http://${info.address}:${info.port}`);
+  hostname: '0.0.0.0',
 });
