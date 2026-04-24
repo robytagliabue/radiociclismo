@@ -3,18 +3,20 @@
   "version": "2.1.12",
   "type": "module",
   "scripts": {
-    "build": "echo 'Skipping mastra build...'",
+    "build": "echo 'Skipping build...'",
     "start": "npx tsx src/mastra/index.ts"
   },
-"dependencies": {
+  "dependencies": {
+    "@mastra/core": "latest",
+    "mastra": "latest",
     "@ai-sdk/google": "latest",
-    "@mastra/core": "0.1.37",
-    "mastra": "0.1.37",
     "ai": "latest",
     "axios": "latest",
     "inngest": "latest",
     "tsx": "latest",
-    "zod": "latest"
+    "zod": "latest",
+    "react": "19.0.0-rc-65a56d0e-20241020",
+    "react-dom": "19.0.0-rc-65a56d0e-20241020"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
