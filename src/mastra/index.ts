@@ -1,27 +1,20 @@
-import { Mastra } from 'mastra';
+import { Mastra, createNodeMiddleware } from '@mastra/core'; // Usa @mastra/core se mastra dà errore
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
-// Inizializzazione Mastra
 export const mastra = new Mastra({
   agents: { cyclingAgent },
   workflows: { cyclingWorkflow },
 });
 
-// Handler per l'interfaccia di controllo e API
 export default async function handler(req: any, res: any) {
   const url = req.url || '';
-
-  // Se la richiesta è per le API di Mastra
   if (url.includes('/api/')) {
-    // Nota: Nelle versioni recenti, Mastra gestisce il routing internamente 
-    // o tramite l'adapter specifico. Se createNodeMiddleware non serve più,
-    // l'handler di Vercel userà questo blocco:
-    const { createNodeMiddleware } = await import('mastra');
     const middleware = createNodeMiddleware(mastra);
     return await middleware(req, res);
   }
-
+  // ... resto del tuo HTML ...
+}
   // Interfaccia grafica (HTML)
   res.setHeader('Content-Type', 'text/html');
   return res.status(200).send(`
