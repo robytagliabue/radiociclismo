@@ -3,7 +3,6 @@ import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
-import { serve as serveInngest } from 'inngest/hono';
 
 // 1. Inizializzazione Mastra
 export const mastra = new Mastra({
@@ -14,19 +13,19 @@ export const mastra = new Mastra({
 
 const app = new Hono();
 
-// 2. Rotta Inngest - Usiamo il metodo integrato di Mastra che è più sicuro
+// 2. Creiamo l'handler UNA VOLTA SOLA all'avvio
+// Usiamo un trucco per assicurarci che Mastra sia pronto
+const inngestHandler = mastra.createInngestHandler();
+
 app.all('/api/inngest', async (c) => {
   try {
-    // Mastra ha un gestore interno già pronto, proviamo a usarlo direttamente
-    const handler = mastra.createInngestHandler();
-    return await handler(c.req.raw);
+    // Usiamo l'handler già creato
+    return await inngestHandler(c.req.raw);
   } catch (err) {
-    console.error('❌ ERRORE DURANTE IL HANDLER:', err);
-    
-    // Se fallisce, proviamo a ricostruire la risposta manualmente per Inngest
-    return c.json({
-      error: 'Inngest synchronization failed',
-      message: err instanceof Error ? err.message : String(err)
+    console.error('❌ Errore critico Inngest:', err);
+    return c.json({ 
+      error: 'Inngest error', 
+      details: err instanceof Error ? err.message : String(err) 
     }, 500);
   }
 });
