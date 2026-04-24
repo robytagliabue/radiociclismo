@@ -14,17 +14,24 @@ export const mastra = new Mastra({
 const app = new Hono();
 
 /**
- * 2. Creazione dell'handler
- * Nelle versioni recenti si trova sotto mastra.inngest
+ * 2. Rotta Inngest - Approccio Dinamico
+ * Se la funzione non esiste come proprietà, la cerchiamo 
+ * usando il metodo di creazione dell'handler di Mastra.
  */
-const inngestHandler = mastra.inngest.createHandler();
-
 app.all('/api/inngest', async (c) => {
   try {
-    return await inngestHandler(c.req.raw);
+    // Proviamo a recuperare l'handler in modo super protetto
+    const handler = typeof (mastra as any).createInngestHandler === 'function' 
+      ? (mastra as any).createInngestHandler() 
+      : (mastra as any).inngest.createHandler();
+
+    return await handler(c.req.raw);
   } catch (err) {
     console.error('❌ Errore Inngest:', err);
-    return c.json({ error: 'Inngest error', details: String(err) }, 500);
+    return c.json({ 
+        error: 'Inngest interface not found', 
+        message: 'Verifica la versione di Mastra e le integrazioni' 
+    }, 500);
   }
 });
 
