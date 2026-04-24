@@ -1,4 +1,4 @@
-import { Agent } from '@mastra/core';
+import { Agent } from '@mastra/core/agent';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
 import { listArticlesTool, deleteArticleTool } from './radiociclismoTool.js';
