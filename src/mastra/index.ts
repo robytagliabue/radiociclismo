@@ -1,12 +1,11 @@
 import { Mastra } from '@mastra/core';
-import { cyclingAgent } from './cyclingAgent';
-import { cyclingWorkflow } from './cyclingWorkflow';
+import { cyclingAgent } from './cyclingAgent.js';
+import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 
-// 1. Inizializzazione esplicita
+// 1. Inizializzazione di Mastra
 export const mastra = new Mastra({
-  // Diamo un ID chiaro all'app
   id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
@@ -14,16 +13,18 @@ export const mastra = new Mastra({
 
 const app = new Hono();
 
-// 2. Rotta Inngest con gestione degli errori
+// 2. Rotta Inngest corretta per Hono/Node
 app.all('/api/inngest', async (c) => {
   try {
-    const handler = mastra.getInngestHandler();
-    // Importante: passiamo la richiesta e Mastra si occupa del resto
+    // MODIFICA QUI: In molte versioni di Mastra si accede così
+    const handler = mastra.createInngestHandler(); 
     return await handler(c.req.raw);
   } catch (err) {
-    // Se c'è un errore 500, lo vedremo nei log di Railway
     console.error('❌ Errore durante il sync con Inngest:', err);
-    return c.json({ error: 'Internal Server Error', message: err instanceof Error ? err.message : String(err) }, 500);
+    return c.json({ 
+        error: 'Internal Server Error', 
+        message: err instanceof Error ? err.message : String(err) 
+    }, 500);
   }
 });
 
