@@ -1,4 +1,4 @@
-import { createTool } from 'mastra';
+import { createTool } from '@mastra/core';
 import { z } from "zod";
 import axios from "axios";
 
