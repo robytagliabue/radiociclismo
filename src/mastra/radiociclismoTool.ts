@@ -1,4 +1,4 @@
-import { createTool } from 'mastra'; 
+import { tool as createTool } from 'mastra'; 
 // Se dà errore:
 // import { tool as createTool } from 'mastra';
 import { z } from "zod";
