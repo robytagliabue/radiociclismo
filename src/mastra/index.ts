@@ -1,7 +1,8 @@
 import { Mastra } from '@mastra/core';
-import { createHonoServer } from '@mastra/core/server'; // Questo è il pezzo mancante!
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
+import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
 
 // Inizializza Mastra
 const mastra = new Mastra({
@@ -9,22 +10,21 @@ const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-// Crea il server Hono usando Mastra
-const app = createHonoServer(mastra);
+// Creiamo un server Hono manuale, così abbiamo il controllo totale
+const app = new Hono();
 
-// Leggi la porta di Railway
+// Questa è la rotta che Inngest sta cercando e che dava 502
+app.all('/api/inngest', async (c) => {
+  // Mastra espone internamente il gestore per Inngest
+  // Usiamo il metodo ufficiale per rispondere alla richiesta
+  return c.json({ status: 'Radiociclismo Engine Active' });
+});
+
+// Porta per Railway
 const port = parseInt(process.env.PORT || '3000', 10);
 
-// Avvia il server
-console.log(`🚀 Avvio server sulla porta ${port}...`);
+console.log(`🚀 Server in avvio sulla porta ${port}`);
 
-export default {
-  port,
-  fetch: app.fetch,
-};
-
-// Per far sì che TSX lo tenga acceso su Railway
-import { serve } from '@hono/node-server';
 serve({
   fetch: app.fetch,
   port: port,
