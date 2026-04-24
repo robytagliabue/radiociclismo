@@ -1,15 +1,8 @@
-import * as mastraLib from 'mastra';
+import { Mastra } from 'mastra';
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
-// Usiamo questa logica per estrarre la classe corretta indipendentemente dalla versione
-const MastraClass: any = 
-  (mastraLib as any).Mastra || 
-  (mastraLib as any).mastra || 
-  (mastraLib as any).default?.Mastra || 
-  mastraLib;
-
-export const mastra = new MastraClass({
+export const mastra = new (Mastra as any)({
   agents: { cyclingAgent },
   workflows: { cyclingWorkflow },
 });
