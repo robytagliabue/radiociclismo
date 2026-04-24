@@ -1,4 +1,6 @@
-import { Mastra, Agent, Workflow, createTool } from '@mastra/core'; 
+import { Mastra, Agent } from '@mastra/core';
+// ed eventualmente
+import { Workflow } from '@mastra/core/workflows';
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
