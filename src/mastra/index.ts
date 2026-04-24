@@ -3,44 +3,37 @@ import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { serve as serveInngest } from 'inngest/hono'; // Importiamo il servitore specifico per Hono
+import { Inngest } from 'inngest';
 
-// 1. Inizializzazione di Mastra
+// 1. Inizializzazione Mastra
 export const mastra = new Mastra({
   id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
+// 2. Configurazione Inngest Diretta (Più robusta)
+const inngest = new Inngest({ id: 'radiociclismo-ai' });
+
+// Trasformiamo i workflow di Mastra in funzioni Inngest
+const inngestFunctions = mastra.getWorkflowInngestFunctions();
+
 const app = new Hono();
 
-// 2. Rotta Inngest per Hono
-app.all('/api/inngest', async (c) => {
-  try {
-    // Recuperiamo l'handler
-    const handler = mastra.createInngestHandler();
-    
-    /**
-     * CRUCIALE: In Hono dobbiamo passare la richiesta 
-     * e gestire la risposta in modo che Inngest la riconosca.
-     */
-    const response = await handler(c.req.raw);
-    return response;
-    
-  } catch (err) {
-    console.error('❌ ERRORE CRITICO INNGEST:', err);
-    return c.json({ 
-      error: 'Inngest Error', 
-      message: err instanceof Error ? err.message : String(err) 
-    }, 500);
-  }
-});
+// 3. La Rotta Inngest usando il pacchetto ufficiale 'inngest/hono'
+// Questo elimina ogni problema di "Handler non trovato"
+app.use('/api/inngest', serveInngest({ 
+  client: inngest, 
+  functions: inngestFunctions 
+}));
 
-// Rotta base
+// Rotta di cortesia
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
+// 4. Avvio Server
 const port = Number(process.env.PORT) || 8080;
-
-console.log(`🚀 Server in ascolto sulla porta ${port}`);
+console.log(`🚀 Server in fuga sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
