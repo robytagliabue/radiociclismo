@@ -1,7 +1,7 @@
 // @ts-ignore
 import { serve } from 'inngest/vercel';
 // @ts-ignore
-import { mastra } from '../../mastra/index'; // Togli il .js, TypeScript preferisce senza o lo risolve lui
+import { mastra } from '../mastra/index'; 
 
 export default serve({
   id: 'radiociclismo-ai',
