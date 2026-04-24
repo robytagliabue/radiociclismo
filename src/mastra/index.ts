@@ -13,26 +13,27 @@ export const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-// 2. Client Inngest Manuale
+// 2. Configurazione Inngest
 const inngest = new Inngest({ id: 'radiociclismo-ai' });
 
 /**
- * Trasformiamo il workflow in una funzione Inngest.
- * Usiamo 'any' per evitare blocchi di TypeScript e andiamo diretti al sodo.
+ * CREAZIONE FUNZIONE INNGEST - SINTASSI CORRETTA v4
  */
-const cyclingInngestFn = (cyclingWorkflow as any).getInngestFunction 
-  ? (cyclingWorkflow as any).getInngestFunction()
-  : inngest.createFunction(
-      { id: 'cycling-workflow' },
-      { event: 'mastra/workflow.cyclingWorkflow.run' },
-      async ({ event, step }) => {
-        return await cyclingWorkflow.execute({ input: event.data });
-      }
-    );
+const cyclingInngestFn = inngest.createFunction(
+  { 
+    id: 'cycling-workflow', 
+    name: 'Cycling Workflow',
+    triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] 
+  },
+  async ({ event, step }) => {
+    const workflow = mastra.getWorkflow('cyclingWorkflow');
+    return await workflow.execute({ input: event.data });
+  }
+);
 
 const app = new Hono();
 
-// 3. Rotta Inngest - Usiamo il server ufficiale di Inngest
+// 3. Rotta Inngest
 app.all('/api/inngest', async (c) => {
   const handler = serveInngest({
     client: inngest,
@@ -45,7 +46,7 @@ app.all('/api/inngest', async (c) => {
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server pronto sulla porta ${port}`);
+console.log(`🚀 Server in ascolto sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
