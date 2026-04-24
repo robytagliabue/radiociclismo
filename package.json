@@ -6,7 +6,7 @@
     "build": "npx mastra build --dir src/mastra",
     "start": "npx mastra start"
   },
-"dependencies": {
+  "dependencies": {
     "inngest": "latest",
     "mastra": "latest",
     "axios": "latest",
