@@ -18,6 +18,10 @@
     "react": "19.0.0-rc-65a56d0e-20241020",
     "react-dom": "19.0.0-rc-65a56d0e-20241020"
   },
+  "overrides": {
+    "react": "19.0.0-rc-65a56d0e-20241020",
+    "react-dom": "19.0.0-rc-65a56d0e-20241020"
+  },
   "devDependencies": {
     "@types/node": "^22.13.0",
     "@types/pg": "^8.11.0"
