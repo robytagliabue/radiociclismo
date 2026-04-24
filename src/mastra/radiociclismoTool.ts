@@ -1,9 +1,10 @@
-import { tool as createTool } from 'mastra'; 
-// Se dà errore:
-// import { tool as createTool } from 'mastra';
+import { createTool } from 'mastra'; // Torna a createTool (maiuscola interna)
 import { z } from "zod";
 import axios from "axios";
 
+export const listArticlesTool = createTool({
+  id: 'list-articles',
+  // ... resto del codice
 // Funzione helper per il cookie di sessione (usata internamente dai tool)
 async function getSessionCookie(): Promise<string> {
   const username = process.env.RC_USERNAME;
