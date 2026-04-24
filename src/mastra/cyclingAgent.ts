@@ -1,4 +1,6 @@
-import { Agent } from '@mastra/core';
+import { Mastra, Agent, Workflow } from 'mastra'; 
+// Se continua a dare errore TS2305, prova così:
+// import { mastra as Mastra, agent as Agent, workflow as Workflow } from 'mastra';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
 import { listArticlesTool, deleteArticleTool } from './radiociclismoTool.js';
