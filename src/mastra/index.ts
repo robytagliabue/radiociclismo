@@ -1,4 +1,4 @@
-import { Mastra } from 'mastra'; // Se dà errore, prova: import { mastra } from 'mastra'
+import { Mastra } from 'mastra'; // Se fallisce ancora, usa: import { mastra as Mastra } from 'mastra';
 import { cyclingAgent } from './cyclingAgent.js';
 import { cyclingWorkflow } from './cyclingWorkflow.js';
 
