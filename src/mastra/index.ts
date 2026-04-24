@@ -6,38 +6,44 @@ import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as serveInngest } from 'inngest/hono';
 
-// 1. Inizializzazione Mastra (Solo per Agent e Workflow)
+// 1. Inizializzazione Mastra
 export const mastra = new Mastra({
   id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
-// 2. CREAZIONE MANUALE DEL CLIENT INNGEST
-// Questo risolve l'errore "undefined" perché lo creiamo noi qui
-const inngest = new Inngest({ 
-  id: 'radiociclismo-ai' 
-});
+// 2. Configurazione Inngest
+const inngest = new Inngest({ id: 'radiociclismo-ai' });
 
-// Trasformiamo il workflow in una funzione che Inngest capisce
-const cyclingFn = cyclingWorkflow.getInngestFunction();
+/**
+ * Creiamo la funzione Inngest manualmente. 
+ * Questo sostituisce il metodo .getInngestFunction() che falliva.
+ */
+const cyclingInngestFn = inngest.createFunction(
+  { id: 'cycling-workflow-function' },
+  { event: 'cycling/run' }, // Questo è l'evento che scatenerà il workflow
+  async ({ event, step }) => {
+    // Chiamiamo il workflow di Mastra direttamente
+    const workflow = mastra.getWorkflow('cyclingWorkflow');
+    return await workflow.execute({ input: event.data });
+  }
+);
 
 const app = new Hono();
 
-// 3. ROTTA INNGEST (Usando il pacchetto ufficiale Inngest per Hono)
+// 3. Rotta Inngest
 app.all('/api/inngest', (c) => {
   const handler = serveInngest({
     client: inngest,
-    functions: [cyclingFn],
+    functions: [cyclingInngestFn],
     signingKey: process.env.INNGEST_SIGNING_KEY,
   });
   return handler(c);
 });
 
-// Rotta di test
 app.get('/', (c) => c.text('Radiociclismo AI is LIVE! 🚴‍♂️'));
 
-// 4. Avvio Server
 const port = Number(process.env.PORT) || 8080;
 console.log(`🚀 Server in ascolto sulla porta ${port}`);
 
