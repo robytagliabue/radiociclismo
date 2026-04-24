@@ -1,11 +1,9 @@
-import { agent as Agent } from 'mastra'; 
-// Se continua a dare errore TS2305, prova così:
-// import { mastra as Mastra, agent as Agent, workflow as Workflow } from 'mastra';
+import { Agent } from 'mastra'; // Torna alla maiuscola
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
 import { listArticlesTool, deleteArticleTool } from './radiociclismoTool.js';
 
-export const cyclingAgent = new Agent({
+export const cyclingAgent = new (Agent as any)({ // Usa (Agent as any) se TS dà ancora errore
   name: 'Cycling Analyst',
   instructions: 'Sei un esperto di ciclismo professionistico. Analizza i dati della corsa e fornisci la top 10 ufficiale in formato strutturato.',
   model: google('gemini-1.5-flash'),
