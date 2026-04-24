@@ -1,4 +1,6 @@
-import { createTool } from "@mastra/core";
+import { createTool } from 'mastra'; 
+// Se dà errore:
+// import { tool as createTool } from 'mastra';
 import { z } from "zod";
 import axios from "axios";
 
