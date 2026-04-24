@@ -1,25 +1,19 @@
-import { Agent } from 'mastra';
+import { Agent } from '@mastra/core';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
-// Assicurati che questi tool siano importati correttamente dal file dove sono definiti
-// import { listArticlesTool, deleteArticleTool, webSearchRacesTool } from './radiociclismoTool.js';
 
 export const cyclingAgent = new Agent({
-  name: "Cycling Article Agent",
-  instructions: `
-    Sei un Redattore Sportivo Senior di Radiociclismo.com.
-    Usa i tool per recuperare i fatti e scrivi articoli accurati.
-    NON inventare dati. Distingui tra corse maschili e femminili.
-  `,
-  model: google("gemini-1.5-flash"),
-  /* Scommenta i tools qui sotto quando sei sicuro che i file siano pronti 
-  o lasciali così se vuoi solo testare il build
+  name: 'Cycling Analyst',
+  instructions: 'Sei un esperto di ciclismo. Analizza i dati e genera classifiche accurate.',
+  model: google('gemini-1.5-flash'),
+  /* I tools sono commentati per evitare errori di import finché 
+    non sistemiamo radiociclismoTool.ts 
   */
   /*
   enabledTools: {
-    listArticlesTool,
-    deleteArticleTool,
-    webSearchRacesTool,
+    // listArticlesTool,
+    // deleteArticleTool,
+    // webSearchRacesTool,
   },
   */
   outputs: {
