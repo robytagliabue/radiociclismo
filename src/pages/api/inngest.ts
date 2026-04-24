@@ -1,12 +1,8 @@
 // @ts-ignore
 import { serve } from 'inngest/vercel';
 // @ts-ignore
-import { mastra } from '../../mastra/index'; 
+import { mastra } from '../src/mastra/index'; 
 
-/**
- * Questo è l'endpoint che permette a Inngest Cloud di 
- * comunicare con il tuo motore Mastra su Vercel.
- */
 export default serve({
   id: 'radiociclismo-ai',
   // @ts-ignore
