@@ -1,21 +1,16 @@
-import { Agent } from 'mastra'; // Torna a 'mastra' invece di '@mastra/core'
+import { Agent } from '@mastra/core';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
+import { listArticlesTool, deleteArticleTool } from './radiociclismoTool.js';
 
 export const cyclingAgent = new Agent({
   name: 'Cycling Analyst',
-  instructions: 'Sei un esperto di ciclismo. Analizza i dati e genera classifiche accurate.',
+  instructions: 'Sei un esperto di ciclismo professionistico. Analizza i dati della corsa e fornisci la top 10 ufficiale in formato strutturato.',
   model: google('gemini-1.5-flash'),
-  /* I tools sono commentati per evitare errori di import finché 
-    non sistemiamo radiociclismoTool.ts 
-  */
-  /*
   enabledTools: {
-    // listArticlesTool,
-    // deleteArticleTool,
-    // webSearchRacesTool,
+    listArticlesTool,
+    deleteArticleTool,
   },
-  */
   outputs: {
     schema: z.object({
       top10: z.array(
