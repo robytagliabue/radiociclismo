@@ -10,17 +10,14 @@ import { serve as serveInngest } from 'inngest/hono';
  * 1. INIZIALIZZAZIONE MASTRA
  */
 export const mastra = new Mastra({
-  id: 'radiociclismo',
+  id: 'radiociclismo-ai',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
 /**
  * 2. CONFIGURAZIONE INNGEST
- * Rileviamo se siamo in produzione su Railway per evitare il messaggio "In cloud mode but no signing key"
  */
-const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_PUBLIC_DOMAIN;
-
 const inngest = new Inngest({ 
   id: 'radiociclismo',
   eventKey: process.env.INNGEST_EVENT_KEY,
@@ -47,30 +44,28 @@ const app = new Hono();
  * 4. ROTTA PER INNGEST (API ENDPOINT)
  */
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  const signingKey = process.env.INNGEST_SIGNING_KEY;
+  // --- CONFIGURAZIONE CHIAVE ---
+  // Incolla la tua chiave tra le virgolette se process.env non funziona
+  const backupKey = "ZBIXQQtGnbIYUl9wlJiXOri0K2HRW7M5NVLr5YfEoWXBa4mFJhb8PnI6226LRkOMqc-RcvUEy4w5B3HyOQFRqA"; 
+  const signingKey = process.env.INNGEST_SIGNING_KEY || backupKey;
 
-  // Log di controllo visibile su Railway
   console.log(`--- [INNGEST CALL] Metodo: ${c.req.method} ---`);
-  if (!signingKey) {
-    console.warn('⚠️ Attenzione: INNGEST_SIGNING_KEY non rilevata dal processo Node!');
-  }
+  console.log(`Chiave Signing rilevata: ${!!process.env.INNGEST_SIGNING_KEY}`);
 
   const handler = serveInngest({
     client: inngest,
     functions: [cyclingInngestFn],
     signingKey: signingKey,
-    // Se la chiave manca, proviamo a forzare isDev solo per non dare 500 immediato nel Sync iniziale
-    isDev: !signingKey && !isProduction,
   });
   
   return handler(c);
 });
 
 /**
- * 5. ROTTA DI TEST E ROOT
+ * 5. ROTTA DI TEST
  */
 app.get('/', (c) => {
-  return c.text(`Radiociclismo AI attivo! Ambiente: ${isProduction ? 'Produzione' : 'Sviluppo'}`);
+  return c.text(`Radiociclismo AI attivo! Porta: ${process.env.PORT || 8080}`);
 });
 
 /**
