@@ -17,16 +17,17 @@ export const mastra = new Mastra({
 
 /**
  * 2. CONFIGURAZIONE INNGEST
- * Passiamo l'Event Key esplicitamente. Se non la trova, userà una stringa vuota 
- * per evitare il crash, ma il log ci avviserà.
+ * Rileviamo se siamo in produzione su Railway per evitare il messaggio "In cloud mode but no signing key"
  */
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_PUBLIC_DOMAIN;
+
 const inngest = new Inngest({ 
   id: 'radiociclismo-ai',
-  eventKey: process.env.INNGEST_EVENT_KEY || '',
+  eventKey: process.env.INNGEST_EVENT_KEY,
 });
 
 /**
- * 3. DEFINIZIONE FUNZIONE (Sintassi Rigida v4)
+ * 3. DEFINIZIONE FUNZIONE WORKFLOW
  */
 const cyclingInngestFn = inngest.createFunction(
   { 
@@ -43,43 +44,40 @@ const cyclingInngestFn = inngest.createFunction(
 const app = new Hono();
 
 /**
- * 4. ROTTA INNGEST CON DEBUG INTEGRATO
+ * 4. ROTTA PER INNGEST (API ENDPOINT)
  */
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
   const signingKey = process.env.INNGEST_SIGNING_KEY;
-  const envMode = process.env.NODE_ENV || 'development';
 
-  // LOG DI EMERGENZA: Vedrai questi nei log di Railway durante il Sync
-  console.log('--- [DEBUG INNGEST] ---');
-  console.log(`Metodo: ${c.req.method}`);
-  console.log(`Ambiente: ${envMode}`);
-  console.log(`Chiave Signing presente: ${!!signingKey}`);
+  // Log di controllo visibile su Railway
+  console.log(`--- [INNGEST CALL] Metodo: ${c.req.method} ---`);
   if (!signingKey) {
-    console.error('❌ ERRORE: La INNGEST_SIGNING_KEY è assente su Railway!');
+    console.warn('⚠️ Attenzione: INNGEST_SIGNING_KEY non rilevata dal processo Node!');
   }
-  console.log('-----------------------');
 
   const handler = serveInngest({
     client: inngest,
     functions: [cyclingInngestFn],
     signingKey: signingKey,
+    // Se la chiave manca, proviamo a forzare isDev solo per non dare 500 immediato nel Sync iniziale
+    isDev: !signingKey && !isProduction,
   });
   
   return handler(c);
 });
 
 /**
- * 5. ROTTA DI TEST
+ * 5. ROTTA DI TEST E ROOT
  */
 app.get('/', (c) => {
-  return c.text(`Radiociclismo AI is LIVE! Port: ${process.env.PORT || 8080}`);
+  return c.text(`Radiociclismo AI attivo! Ambiente: ${isProduction ? 'Produzione' : 'Sviluppo'}`);
 });
 
 /**
  * 6. AVVIO SERVER
  */
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server in fuga sulla porta ${port}`);
+console.log(`🚀 Server in ascolto sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
