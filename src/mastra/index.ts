@@ -46,7 +46,7 @@ const app = new Hono();
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
   // --- CONFIGURAZIONE CHIAVE ---
   // Incolla la tua chiave tra le virgolette se process.env non funziona
-  const backupKey = "ZBIXQQtGnbIYUl9wlJiXOri0K2HRW7M5NVLr5YfEoWXBa4mFJhb8PnI6226LRkOMqc-RcvUEy4w5B3HyOQFRqA"; 
+  const backupKey = "TH5rhD0BbqMnA6Vu54MRq9PH3dazneyBnKYFPmMR3lPjco5SDHCsAn2i9_Qp48UkB5TmvJfoemI3m47So2-Lgg"; 
   const signingKey = process.env.INNGEST_SIGNING_KEY || backupKey;
 
   console.log(`--- [INNGEST CALL] Metodo: ${c.req.method} ---`);
