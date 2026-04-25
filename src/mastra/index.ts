@@ -10,7 +10,7 @@ import { serve as serveInngest } from 'inngest/hono';
  * 1. INIZIALIZZAZIONE MASTRA
  */
 export const mastra = new Mastra({
-  id: 'radiociclismo-ai',
+  id: 'radiociclismo',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
@@ -22,7 +22,7 @@ export const mastra = new Mastra({
 const isProduction = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_PUBLIC_DOMAIN;
 
 const inngest = new Inngest({ 
-  id: 'radiociclismo-ai',
+  id: 'radiociclismo',
   eventKey: process.env.INNGEST_EVENT_KEY,
 });
 
