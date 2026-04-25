@@ -5,7 +5,7 @@ import { Inngest } from "inngest";
  * Soluzione al problema NESTING_STEPS: rimosso il realtimeMiddleware.
  */
 export const inngest = new Inngest({ 
-  id: "radiociclismo-app",
+  id: "radiociclismo",
   middleware: [] 
 });
 
