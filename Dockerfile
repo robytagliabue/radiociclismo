@@ -7,8 +7,7 @@ RUN npm install
 
 COPY . .
 
-# DEBUG: mostra cosa c'è in /app dopo il COPY
-RUN ls -la /app && ls -la /app/src || echo "src/ NON ESISTE!"
+RUN echo "=== CONTENUTO /app ===" && ls -la /app && echo "=== CONTENUTO /app/src ===" && ls -la /app/src || echo "❌ src/ NON ESISTE"
 
 EXPOSE 8080
 CMD ["npm", "run", "start"]
