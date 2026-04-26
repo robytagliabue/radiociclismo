@@ -6,29 +6,41 @@ import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as serveInngest } from 'inngest/hono';
 
+/**
+ * 1. CONFIGURAZIONE MASTRA
+ */
 export const mastra = new Mastra({
-  id: 'radiociclismo',
+  id: 'radiociclismo-v5',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
 const app = new Hono();
 
+/**
+ * 2. ROTTA DI TEST (Root)
+ */
 app.get('/', (c) => c.text('Radiociclismo Engine: Online 🚴‍♂️'));
 
+/**
+ * 3. ROTTA INNGEST (Endpoint per il Sync)
+ */
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
   
-  // 1. CHIAVE (Assicurati sia sign-nm-...)
+  // -------------------------------------------------------------------------
+  // [AZIONE]: Incolla qui la NUOVA Signing Key della NUOVA app su Inngest
+  // -------------------------------------------------------------------------
   const MY_REAL_KEY = "signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e"; 
 
+  // Cambiando l'ID in v5, Inngest lo tratterà come un progetto vergine
   const inngest = new Inngest({ 
-    id: 'radiociclismo' 
+    id: 'radiociclismo-v5' 
   });
 
   const cyclingFn = inngest.createFunction(
     { 
-      id: 'cycling-workflow', 
-      name: 'Cycling Workflow',
+      id: 'cycling-workflow-v5', 
+      name: 'Cycling Workflow V5',
       triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] 
     },
     async ({ event }) => {
@@ -37,29 +49,35 @@ app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
     }
   );
 
+  // Debug per il browser
   if (c.req.method === 'GET' && !c.req.header('x-inngest-signature')) {
     return c.json({
       status: "Running",
-      key_present: MY_REAL_KEY.startsWith("signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e"),
-      url_checked: "/api/inngest"
+      app_id: "radiociclismo-v5",
+      key_present: MY_REAL_KEY.startsWith("sign-nm-"),
+      instructions: "Se key_present è true, vai su Inngest e registra questa NUOVA app"
     });
   }
 
-  try {
-    const handler = serveInngest({
-      client: inngest,
-      functions: [cyclingFn],
-      signingKey: MY_REAL_KEY,
-      // FORZA IL PERCORSO: Questo risolve i problemi di "UNKNOWN"
-      servePath: '/api/inngest',
-    });
-    return await handler(c);
-  } catch (err: any) {
-    // Questo finirà nei log di Railway
-    console.error("ERRORE HANDLER:", err.message);
-    return c.json({ error: "Inngest Error", message: err.message }, 500);
-  }
+  // Handler configurato per ignorare i fallback delle vecchie app
+  const handler = serveInngest({
+    client: inngest,
+    functions: [cyclingFn],
+    signingKey: MY_REAL_KEY,
+    signingKeyFallback: undefined, // Ignora esplicitamente le chiavi passate
+  });
+  
+  return handler(c);
 });
 
+/**
+ * 4. AVVIO SERVER
+ */
 const port = Number(process.env.PORT) || 8080;
-serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
+console.log(`🚀 Server radiociclismo-v5 attivo sulla porta ${port}`);
+
+serve({
+  fetch: app.fetch,
+  port: port,
+  hostname: '0.0.0.0',
+});
