@@ -3,15 +3,10 @@
   "version": "2.1.12",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/mastra/server.ts",
+    "start": "tsx src/mastra/server.ts",
     "build": "echo 'Build OK'"
   },
-  "scripts": {
-  "dev": "tsx watch src/mastra/index.ts",
-  "start": "tsx src/mastra/server.ts"
-  "build": "echo 'Build OK'"
-},
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.10",
