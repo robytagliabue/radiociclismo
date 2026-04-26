@@ -1,4 +1,9 @@
-import { createServer } from 'node:http';
+# Crea la cartella se non esiste
+mkdir -p src
+
+# Crea il file
+cat > src/index.ts << 'EOF'
+import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as inngestServe } from 'inngest/hono';
@@ -22,55 +27,30 @@ const pingFn = inngest.createFunction(
 const inngestHandler = inngestServe({
   client: inngest,
   functions: [pingFn],
-  serveHost: process.env.RAILWAY_PUBLIC_DOMAIN
-    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-    : undefined,
-  servePath: '/api/inngest',
 });
 
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', (c) => inngestHandler(c));
 
-app.get('/', (c) =>
-  c.json({
-    status: 'online',
-    service: 'RadioCiclismo AI Agent',
-    version: 'v6',
-    timestamp: new Date().toISOString(),
-  })
-);
+app.get('/debug', (c) => {
+  return c.json({
+    INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY ? '✅ presente' : '❌ mancante',
+    INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY ? '✅ presente' : '❌ mancante',
+    PORT: process.env.PORT ?? '❌ mancante',
+  });
+});
+
+app.get('/', (c) => c.json({
+  status: 'online',
+  service: 'RadioCiclismo AI Agent',
+  version: 'v6',
+}));
 
 const port = Number(process.env.PORT) || 8080;
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
+console.log(`🚴 RadioCiclismo online sulla porta ${port}`);
+EOF
 
-// Usa fetch nativo di Hono con createServer
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url!, `http://${req.headers.host}`);
-  
-  const headers = new Headers();
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value) headers.set(key, Array.isArray(value) ? value.join(',') : value);
-  }
-
-  const body =
-    req.method !== 'GET' && req.method !== 'HEAD'
-      ? await new Promise<Buffer>((resolve) => {
-          const chunks: Buffer[] = [];
-          req.on('data', (chunk) => chunks.push(chunk));
-          req.on('end', () => resolve(Buffer.concat(chunks)));
-        })
-      : undefined;
-
-  const request = new Request(url, {
-    method: req.method,
-    headers,
-    body: body?.length ? body : undefined,
-  });
-
-  const response = await app.fetch(request);
-
-  res.writeHead(response.status, Object.fromEntries(response.headers));
-  res.end(Buffer.from(await response.arrayBuffer()));
-});
-
-server.listen(port, '0.0.0.0', () => {
-  console.log(`🚴 RadioCiclismo online sulla porta ${port}`);
-});
+# Committa e pusha
+git add src/index.ts package.json
+git commit -m "fix: aggiungo src/index.ts, punta start al file corretto"
+git push
