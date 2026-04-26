@@ -5,17 +5,26 @@ import { serve as serveInngest } from 'inngest/hono';
 
 const app = new Hono();
 
-// Client base senza fronzoli
+// 1. Client base
 const inngest = new Inngest({ id: 'radiociclismo-test' });
 
-// Funzione finta (senza Mastra)
+/**
+ * 2. FUNZIONE CORRETTA
+ * Il primo argomento contiene ID e Triggers. 
+ * Il secondo argomento è la funzione (handler).
+ */
 const dummyFn = inngest.createFunction(
-  { id: 'test-ping', name: 'Test Ping' },
-  { event: 'test/ping' },
-  async () => { return { message: 'pong' }; }
+  { 
+    id: 'test-ping', 
+    name: 'Test Ping',
+    triggers: [{ event: 'test/ping' }] // I trigger vanno qui dentro!
+  },
+  async () => { 
+    return { message: 'pong' }; 
+  }
 );
 
-app.get('/', (c) => c.text('Server di Test Online 🚴‍♂️'));
+app.get('/', (c) => c.text('Server di Test Corretto: Online 🚴‍♂️'));
 
 app.on(['GET', 'POST', 'PUT'], '/api/v1/sync', async (c) => {
   try {
@@ -30,4 +39,6 @@ app.on(['GET', 'POST', 'PUT'], '/api/v1/sync', async (c) => {
 });
 
 const port = Number(process.env.PORT) || 8080;
+console.log(`🚀 Server in ascolto su porta ${port}`);
+
 serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
