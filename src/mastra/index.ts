@@ -13,20 +13,21 @@ export const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-// 2. Inngest - Disabilitiamo il check bloccante all'avvio
-const inngest = new Inngest({ 
-  id: 'radiociclismo',
-  // Se la chiave non c'è, mettiamo una stringa vuota per evitare il crash immediato
-  eventKey: process.env.INNGEST_EVENT_KEY || 'no-key-yet'
-});
+// 2. Inngest
+const inngest = new Inngest({ id: 'radiociclismo' });
 
-// 3. Funzione
+/**
+ * 3. DEFINIZIONE FUNZIONE (SINTASSI CORRETTA)
+ * L'id e i triggers DEVONO stare nello stesso oggetto (il primo argomento).
+ */
 const cyclingFn = inngest.createFunction(
   { 
     id: 'cycling-workflow', 
     name: 'Cycling Workflow',
+    // I triggers vanno qui dentro!
     triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] 
   },
+  // Il secondo argomento è SOLO la funzione
   async ({ event }) => {
     const workflow = mastra.getWorkflow('cyclingWorkflow');
     return await workflow.execute({ input: event.data });
@@ -37,26 +38,22 @@ const app = new Hono();
 
 // 4. Rotta Inngest
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  // Prendiamo la chiave che hai su Railway o usiamo una stringa per non far morire Hono
-  const key = process.env.INNGEST_SIGNING_KEY;
-
+  // SOSTITUISCI CON LA TUA CHIAVE REALE
+  const MY_SIGNING_KEY = "sign-nm-xxxxxxxxxxxxxxxxxxxx"; 
+  
   const handler = serveInngest({
     client: inngest,
     functions: [cyclingFn],
-    signingKey: key,
-    // Questo permette a Inngest di rispondere anche se la chiave è "instabile" durante il sync
-    isDev: !key, 
+    signingKey: process.env.INNGEST_SIGNING_KEY || MY_SIGNING_KEY,
   });
   
   return handler(c);
 });
 
-app.get('/', (c) => c.text('Radiociclismo Engine: Online 🚴‍♂️'));
+app.get('/', (c) => c.text('Radiociclismo AI - Engine Online 🚴‍♂️'));
 
 const port = Number(process.env.PORT) || 8080;
-
-// Log di conferma per Railway
-console.log(`🚀 Tentativo di avvio su porta ${port}...`);
+console.log(`🚀 Server radiociclismo attivo sulla porta ${port}`);
 
 serve({
   fetch: app.fetch,
