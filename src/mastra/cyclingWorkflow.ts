@@ -148,7 +148,7 @@ export const cyclingWorkflowFn = inngest.createFunction(
       if (html.startsWith("ERRORE")) throw new Error(html);
 
       const result = await generateObject({
-        model: google("gemini-2.0-flash"),
+        model: google("gemini-2.0-flash-lite-lite"),
         prompt: `Analizza questo HTML di ProCyclingStats e trova tutte le gare FINITE oggi (status "finished" o "result").
 Per ogni gara estrai: nome, url relativo (es /race/giro-d-italia/2026/stage-5), categoria, genere (men/women), tipo (singola/tappa).
 HTML: ${html.substring(0, 10000)}`,
@@ -196,7 +196,7 @@ HTML: ${html.substring(0, 10000)}`,
           if (html.startsWith("ERRORE")) return null;
 
           const result = await generateObject({
-            model: google("gemini-2.0-flash"),
+            model: google("gemini-2.0-flash-lite-lite"),
             prompt: `Estrai i risultati da questo HTML di ProCyclingStats per la gara "${gara.nome}".
 Estrai top 10 classifica arrivo. Se è una tappa estrai anche classifica generale (top 5).
 Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
@@ -261,7 +261,7 @@ Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
               : "";
 
             const result = await generateObject({
-              model: google("gemini-2.0-flash"),
+              model: google("gemini-2.0-flash-lite-lite"),
               prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
 
 REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
@@ -317,7 +317,7 @@ OUTPUT OBBLIGATORIO:
 
           const articoloEN = await step.run(`genera-en-${gara.nome}`, async () => {
             const result = await generateObject({
-              model: google("gemini-2.0-flash"),
+              model: google("gemini-2.0-flash-lite-lite"),
               prompt: `You are a senior cycling journalist for RadioCiclismo.com.
 Translate and adapt this Italian article to professional English journalism.
 Style: ${stile.id}
