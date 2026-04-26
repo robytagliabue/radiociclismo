@@ -8,6 +8,6 @@
     "skipLibCheck": true,
     "outDir": "dist"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/index.ts", "src/agents/**/*", "src/functions/**/*"],
+  "exclude": ["node_modules", "dist", "src/mastra"]
 }
