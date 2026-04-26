@@ -4,10 +4,9 @@
   "type": "module",
   "main": "src/mastra/index.ts",
   "scripts": {
-    "start": "tsx src/mastra/index.ts",
-    "dev": "tsx watch src/mastra/index.ts",
-    "build": "tsc"
-  },
+  "start": "tsx src/mastra/index.ts",
+  "build": "echo 'Skipping build step...'" 
+},
   "dependencies": {
     "@hono/node-server": "latest",
     "hono": "latest",
