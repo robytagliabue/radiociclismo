@@ -5,35 +5,67 @@ import { serve as serveInngest } from 'inngest/hono';
 
 const app = new Hono();
 
-// Client Inngest
-const inngest = new Inngest({ id: 'radiociclismo-test' });
-
-const dummyFn = inngest.createFunction(
-  { id: 'test-ping', name: 'Test Ping', triggers: [{ event: 'test/ping' }] },
-  async () => { return { message: 'pong' }; }
-);
-
-app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  console.log(`[DEBUG] Richiesta Inngest ricevuta: ${c.req.method}`);
-  
-  try {
-    const handler = serveInngest({
-      client: inngest,
-      functions: [dummyFn],
-      // PROVA 1: Se hai la chiave, incollala qui sotto. 
-      // PROVA 2: Se dà ancora 500, commenta la riga signingKey e metti isDev: true
-      signingKey: 'signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e', 
-      // isDev: true, 
-    });
-    
-    return await handler(c);
-  } catch (err: any) {
-    console.error("[CRASH LOG]:", err.message);
-    return c.json({ error: "Crash interno", details: err.message }, 500);
-  }
+/**
+ * 1. CONFIGURAZIONE CLIENT
+ * L'ID deve essere unico e coerente con il nuovo URL.
+ */
+const inngest = new Inngest({ 
+  id: 'radiociclismo-v6-core' 
 });
 
-app.get('/', (c) => c.text('Server Online 🚴‍♂️'));
+/**
+ * 2. FUNZIONE DI TEST (Ping)
+ * Questa serve a Inngest per confermare che il server risponde correttamente.
+ */
+const pingFn = inngest.createFunction(
+  { 
+    id: 'ping-v6-test', 
+    name: 'Ping V6 Test',
+    triggers: [{ event: 'app/ping' }] 
+  },
+  async () => { 
+    return { 
+      status: 'success', 
+      message: 'Connessione stabilita con il nuovo URL v6',
+      timestamp: new Date().toISOString() 
+    }; 
+  }
+);
+
+/**
+ * 3. ROTTA PER INNGEST
+ * Gestisce le chiamate da Inngest su /api/inngest
+ */
+app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
+  console.log(`[INNGEST] Chiamata ${c.req.method} ricevuta su v6-core`);
+
+  const handler = serveInngest({
+    client: inngest,
+    functions: [pingFn],
+    // La signingKey viene letta automaticamente dalle variabili di Railway:
+    // Assicurati di avere INNGEST_SIGNING_KEY impostata con la chiave di "radiociclismo-produzione"
+  });
+  
+  return handler(c);
+});
+
+/**
+ * 4. PAGINA DI CORTESIA
+ */
+app.get('/', (c) => {
+  return c.text('Motore Radiociclismo v6-core: ATTIVO 🚴‍♂️');
+});
 
 const port = Number(process.env.PORT) || 8080;
-serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
+
+console.log(`
+  🚀 Server pronto!
+  URL Principale: https://radiociclismo-v6-core.up.railway.app
+  Inngest Endpoint: https://radiociclismo-v6-core.up.railway.app/api/inngest
+`);
+
+serve({
+  fetch: app.fetch,
+  port: port,
+  hostname: '0.0.0.0',
+});
