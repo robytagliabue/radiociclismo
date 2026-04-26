@@ -6,58 +6,70 @@ import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as serveInngest } from 'inngest/hono';
 
-// 1. Mastra
+// 1. Mastra lo carichiamo subito (non dà problemi)
 export const mastra = new Mastra({
   id: 'radiociclismo',
   agents: [cyclingAgent],
   workflows: [cyclingWorkflow],
 });
 
-// 2. Inngest - Usiamo una chiave fake se manca quella reale per evitare il crash
-const inngest = new Inngest({ 
-  id: 'radiociclismo',
-  eventKey: process.env.INNGEST_EVENT_KEY || 'local_key'
-});
-
-// 3. Funzione
-const cyclingFn = inngest.createFunction(
-  { id: 'cycling-workflow', name: 'Cycling Workflow', triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] },
-  async ({ event }) => {
-    const workflow = mastra.getWorkflow('cyclingWorkflow');
-    return await workflow.execute({ input: event.data });
-  }
-);
-
 const app = new Hono();
 
-// 4. Rotta Inngest - AGGIORNATA PER IL DEBUG
-app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  const key = process.env.INNGEST_SIGNING_KEY;
-
-  // Se è un browser (GET), mostriamo uno stato invece di far rispondere l'SDK
-  if (c.req.method === 'GET' && !c.req.header('x-inngest-signature')) {
-    return c.json({
-      status: "Running",
-      app: "radiociclismo",
-      hasKey: !!key,
-      message: "Pronto per il Sync di Inngest"
-    });
-  }
-
-  try {
-    const handler = serveInngest({
-      client: inngest,
-      functions: [cyclingFn],
-      signingKey: key,
-    });
-    return await handler(c);
-  } catch (err: any) {
-    console.error("ERRORE INNGEST HANDLER:", err);
-    return c.json({ error: "Handler Error", details: err.message }, 500);
-  }
-});
-
+/**
+ * 2. ROTTA DI TEST (Se questa risponde, il server è vivo)
+ */
 app.get('/', (c) => c.text('Radiociclismo Engine: Online 🚴‍♂️'));
 
+/**
+ * 3. ROTTA INNGEST (Inizializzazione dinamica)
+ */
+app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
+  const signingKey = process.env.INNGEST_SIGNING_KEY;
+
+  // Inizializziamo Inngest QUI DENTRO, così se manca la chiave all'avvio il server non muore
+  const inngest = new Inngest({ 
+    id: 'radiociclismo',
+    eventKey: process.env.INNGEST_EVENT_KEY || 'no-key'
+  });
+
+  const cyclingFn = inngest.createFunction(
+    { id: 'cycling-workflow', name: 'Cycling Workflow', triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] },
+    async ({ event }) => {
+      const workflow = mastra.getWorkflow('cyclingWorkflow');
+      return await workflow.execute({ input: event.data });
+    }
+  );
+
+  // Se è un browser che curiosa
+  if (c.req.method === 'GET' && !c.req.header('x-inngest-signature')) {
+    return c.json({
+        status: "Running",
+        keyDetected: !!signingKey,
+        env: process.env.NODE_ENV || 'not set'
+    });
+  }
+
+  const handler = serveInngest({
+    client: inngest,
+    functions: [cyclingFn],
+    signingKey: signingKey,
+  });
+  
+  return handler(c);
+});
+
+/**
+ * 4. AVVIO SERVER (Blindato)
+ */
 const port = Number(process.env.PORT) || 8080;
-serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
+console.log(`🚀 Avvio server sulla porta ${port}...`);
+
+try {
+  serve({
+    fetch: app.fetch,
+    port: port,
+    hostname: '0.0.0.0',
+  });
+} catch (err) {
+  console.error("Errore fatale durante lo startup:", err);
+}
