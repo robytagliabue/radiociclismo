@@ -13,21 +13,15 @@ export const mastra = new Mastra({
   workflows: [cyclingWorkflow],
 });
 
-// 2. Inngest
-const inngest = new Inngest({ id: 'radiociclismo' });
+// 2. Inngest - Usiamo una chiave fake se manca quella reale per evitare il crash
+const inngest = new Inngest({ 
+  id: 'radiociclismo',
+  eventKey: process.env.INNGEST_EVENT_KEY || 'local_key'
+});
 
-/**
- * 3. DEFINIZIONE FUNZIONE (SINTASSI CORRETTA)
- * L'id e i triggers DEVONO stare nello stesso oggetto (il primo argomento).
- */
+// 3. Funzione
 const cyclingFn = inngest.createFunction(
-  { 
-    id: 'cycling-workflow', 
-    name: 'Cycling Workflow',
-    // I triggers vanno qui dentro!
-    triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] 
-  },
-  // Il secondo argomento è SOLO la funzione
+  { id: 'cycling-workflow', name: 'Cycling Workflow', triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] },
   async ({ event }) => {
     const workflow = mastra.getWorkflow('cyclingWorkflow');
     return await workflow.execute({ input: event.data });
@@ -36,27 +30,34 @@ const cyclingFn = inngest.createFunction(
 
 const app = new Hono();
 
-// 4. Rotta Inngest
+// 4. Rotta Inngest - AGGIORNATA PER IL DEBUG
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  // SOSTITUISCI CON LA TUA CHIAVE REALE
-  const MY_SIGNING_KEY = "signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e"; 
-  
-  const handler = serveInngest({
-    client: inngest,
-    functions: [cyclingFn],
-    signingKey: process.env.INNGEST_SIGNING_KEY || MY_SIGNING_KEY,
-  });
-  
-  return handler(c);
+  const key = process.env.INNGEST_SIGNING_KEY;
+
+  // Se è un browser (GET), mostriamo uno stato invece di far rispondere l'SDK
+  if (c.req.method === 'GET' && !c.req.header('x-inngest-signature')) {
+    return c.json({
+      status: "Running",
+      app: "radiociclismo",
+      hasKey: !!key,
+      message: "Pronto per il Sync di Inngest"
+    });
+  }
+
+  try {
+    const handler = serveInngest({
+      client: inngest,
+      functions: [cyclingFn],
+      signingKey: key,
+    });
+    return await handler(c);
+  } catch (err: any) {
+    console.error("ERRORE INNGEST HANDLER:", err);
+    return c.json({ error: "Handler Error", details: err.message }, 500);
+  }
 });
 
-app.get('/', (c) => c.text('Radiociclismo AI - Engine Online 🚴‍♂️'));
+app.get('/', (c) => c.text('Radiociclismo Engine: Online 🚴‍♂️'));
 
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server radiociclismo attivo sulla porta ${port}`);
-
-serve({
-  fetch: app.fetch,
-  port: port,
-  hostname: '0.0.0.0',
-});
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
