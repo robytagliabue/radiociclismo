@@ -39,7 +39,7 @@ const app = new Hono();
 // 4. Rotta Inngest
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
   // SOSTITUISCI CON LA TUA CHIAVE REALE
-  const MY_SIGNING_KEY = "sign-nm-xxxxxxxxxxxxxxxxxxxx"; 
+  const MY_SIGNING_KEY = "signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e"; 
   
   const handler = serveInngest({
     client: inngest,
