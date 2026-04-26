@@ -22,7 +22,7 @@ app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
       functions: [dummyFn],
       // PROVA 1: Se hai la chiave, incollala qui sotto. 
       // PROVA 2: Se dà ancora 500, commenta la riga signingKey e metti isDev: true
-      signingKey: 'signkeyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 
+      signingKey: 'signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e', 
       // isDev: true, 
     });
     
