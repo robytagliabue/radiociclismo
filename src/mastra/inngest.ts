@@ -1,4 +1,4 @@
-import { Inngest } from "inngest";
+ import { Inngest } from "inngest";
 
 export const inngest = new Inngest({
   id: "radiociclismo",
@@ -7,13 +7,3 @@ export const inngest = new Inngest({
 });
 
 export const CYCLING_WORKFLOW_EVENT = "cycling/generate.article";
-
-/**
- * Nome del trigger per il workflow di generazione articoli
- */
-export const CYCLING_WORKFLOW_EVENT = "cycling/generate.article";
-
-/**
- * Nota: Se in futuro vorrai aggiungere gli Schemas per il completamento automatico,
- * dovrai importare { EventSchemas } da "inngest".
- */
