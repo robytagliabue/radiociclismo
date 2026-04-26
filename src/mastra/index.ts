@@ -5,67 +5,39 @@ import { serve as serveInngest } from 'inngest/hono';
 
 const app = new Hono();
 
-/**
- * 1. CONFIGURAZIONE CLIENT
- * L'ID deve essere unico e coerente con il nuovo URL.
- */
-const inngest = new Inngest({ 
-  id: 'radiociclismo-v6-core' 
-});
+// Client ultra-base
+const inngest = new Inngest({ id: 'radiociclismo-v6-core' });
 
-/**
- * 2. FUNZIONE DI TEST (Ping)
- * Questa serve a Inngest per confermare che il server risponde correttamente.
- */
 const pingFn = inngest.createFunction(
-  { 
-    id: 'ping-v6-test', 
-    name: 'Ping V6 Test',
-    triggers: [{ event: 'app/ping' }] 
-  },
-  async () => { 
-    return { 
-      status: 'success', 
-      message: 'Connessione stabilita con il nuovo URL v6',
-      timestamp: new Date().toISOString() 
-    }; 
-  }
+  { id: 'ping', name: 'Ping' },
+  { event: 'app/ping' },
+  async () => { return { ok: true }; }
 );
 
-/**
- * 3. ROTTA PER INNGEST
- * Gestisce le chiamate da Inngest su /api/inngest
- */
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  console.log(`[INNGEST] Chiamata ${c.req.method} ricevuta su v6-core`);
+  try {
+    // Verifichiamo se la chiave esiste (Log su Railway)
+    console.log("Chiave presente su Railway?", !!process.env.INNGEST_SIGNING_KEY);
 
-  const handler = serveInngest({
-    client: inngest,
-    functions: [pingFn],
-    // La signingKey viene letta automaticamente dalle variabili di Railway:
-    // Assicurati di avere INNGEST_SIGNING_KEY impostata con la chiave di "radiociclismo-produzione"
-  });
-  
-  return handler(c);
+    const handler = serveInngest({
+      client: inngest,
+      functions: [pingFn],
+      // Se la chiave è corrotta, l'errore verrà catturato dal catch qui sotto
+    });
+    
+    return await handler(c);
+  } catch (err: any) {
+    // Questo manderà l'errore VERO al browser e ai log di Railway
+    console.error("ERRORE FATALE INNGEST:", err.message);
+    return c.json({ 
+      error: "Crash durante il Sync", 
+      message: err.message,
+      stack: err.stack 
+    }, 500);
+  }
 });
 
-/**
- * 4. PAGINA DI CORTESIA
- */
-app.get('/', (c) => {
-  return c.text('Motore Radiociclismo v6-core: ATTIVO 🚴‍♂️');
-});
+app.get('/', (c) => c.text('Test Debug v6: Online 🚴‍♂️'));
 
 const port = Number(process.env.PORT) || 8080;
-
-console.log(`
-  🚀 Server pronto!
-  URL Principale: https://radiociclismo-v6-core.up.railway.app
-  Inngest Endpoint: https://radiociclismo-v6-core.up.railway.app/api/inngest
-`);
-
-serve({
-  fetch: app.fetch,
-  port: port,
-  hostname: '0.0.0.0',
-});
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
