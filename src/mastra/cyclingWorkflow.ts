@@ -1,11 +1,11 @@
 import { inngest } from "./inngest.js";
 import { google } from "@ai-sdk/google";
-import { generateObject, generateText } from "ai";
+import { generateObject } from "ai";
 import { z } from "zod";
 import axios from "axios";
 import FormData from "form-data";
+import { execSync } from "child_process";
 
-// ─── COSTANTI ─────────────────────────────────────────────────────────────────
 const RC_BASE = "https://radiociclismo.com";
 const PCS_BASE = "https://www.procyclingstats.com";
 
@@ -38,15 +38,6 @@ const STRUTTURE = [
   `Struttura 3 — Analisi prima: 1.Analisi tattica iniziale 2.Cronaca sintetica 3.Percorso 4.Top10 5.Prossime gare`,
 ];
 
-const VARIAZIONI_VOCAB: Record<string, string[]> = {
-  fuga: ["attacco", "allungo", "iniziativa", "sortita"],
-  traguardo: ["arrivo", "linea finale"],
-  gruppo: ["plotone", "gruppo compatto", "drappello"],
-  "attacco decisivo": ["accelerazione finale", "affondo risolutivo"],
-  "ritmo alto": ["andatura sostenuta", "cadenza elevata"],
-};
-
-// ─── HELPER: Sessione RC ───────────────────────────────────────────────────────
 async function getSessionCookie(): Promise<string> {
   try {
     const res = await axios.post(
@@ -62,25 +53,33 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-// ─── HELPER: Scraping con headers anti-Cloudflare ────────────────────────────
 async function fetchPage(url: string): Promise<string> {
   try {
-    const res = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "it-IT,it;q=0.9,en;q=0.8",
-        "Referer": PCS_BASE,
-      },
-      timeout: 20000,
-    });
-    return res.data as string;
+    const result = execSync(
+      `curl -s -L --http2 --max-time 30 \
+      -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" \
+      -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+      -H "Accept-Language: it-IT,it;q=0.9,en;q=0.8" \
+      -H "Accept-Encoding: gzip, deflate, br" \
+      -H "Cache-Control: no-cache" \
+      -H "Referer: https://www.procyclingstats.com/" \
+      -H "sec-ch-ua: \\"Google Chrome\\";v=\\"135\\", \\"Not-A.Brand\\";v=\\"8\\", \\"Chromium\\";v=\\"135\\"" \
+      -H "sec-ch-ua-mobile: ?0" \
+      -H "sec-ch-ua-platform: \\"macOS\\"" \
+      -H "Sec-Fetch-Dest: document" \
+      -H "Sec-Fetch-Mode: navigate" \
+      -H "Sec-Fetch-Site: none" \
+      -H "Sec-Fetch-User: ?1" \
+      --compressed \
+      "${url}"`,
+      { maxBuffer: 10 * 1024 * 1024 }
+    );
+    return result.toString();
   } catch (e: any) {
     return `ERRORE: ${e.message}`;
   }
 }
 
-// ─── HELPER: Fuzzy match gara RC ─────────────────────────────────────────────
 function normalizzaNome(nome: string): string {
   return nome
     .toLowerCase()
@@ -116,7 +115,6 @@ function fuzzyMatch(pcsNome: string, rcGare: any[], genere: string): any | null 
   return miglior;
 }
 
-// ─── HELPER: Genera CSV risultati ────────────────────────────────────────────
 function generaCSV(risultati: any[]): Buffer {
   const header = "POSIZIONE,NOME,SQUADRA,TEMPO,DISTACCO,NAZIONE\n";
   const rows = risultati.map(r =>
@@ -125,7 +123,6 @@ function generaCSV(risultati: any[]): Buffer {
   return Buffer.from(header + rows, "utf-8");
 }
 
-// ─── WORKFLOW PRINCIPALE ──────────────────────────────────────────────────────
 export const cyclingWorkflowFn = inngest.createFunction(
   {
     id: "cycling-workflow",
@@ -137,14 +134,12 @@ export const cyclingWorkflowFn = inngest.createFunction(
   async ({ event, step }) => {
     const report: any[] = [];
 
-    // ── STEP 1: Login RC ────────────────────────────────────────────────────
     const sessionCookie = await step.run("login-rc", async () => {
       const cookie = await getSessionCookie();
       if (!cookie) throw new Error("Login RC fallito");
       return cookie;
     });
 
-    // ── STEP 2: Scarica gare RC esistenti ───────────────────────────────────
     const rcGare = await step.run("fetch-rc-races", async () => {
       const res = await axios.get(`${RC_BASE}/api/admin/races?status=approved`, {
         headers: { Cookie: sessionCookie },
@@ -152,7 +147,6 @@ export const cyclingWorkflowFn = inngest.createFunction(
       return res.data as any[];
     });
 
-    // ── STEP 3: Scraping gare del giorno da PCS ─────────────────────────────
     const gareOggi = await step.run("scraping-pcs-gare", async () => {
       const html = await fetchPage(`${PCS_BASE}/races.php?date=today`);
       if (html.startsWith("ERRORE")) throw new Error(html);
@@ -179,12 +173,10 @@ HTML: ${html.substring(0, 10000)}`,
       return { success: true, message: "Nessuna gara finita oggi su PCS", report };
     }
 
-    // ── STEP 4: Processa ogni gara ──────────────────────────────────────────
     for (const gara of gareOggi) {
       const garaReport: any = { nome: gara.nome, azioni: [] };
 
       try {
-        // 4a. Verifica articolo già esistente
         const articoloEsiste = await step.run(`check-articolo-${gara.nome}`, async () => {
           const res = await axios.get(
             `${RC_BASE}/api/admin/articles?search=${encodeURIComponent(gara.nome)}&limit=5`,
@@ -202,7 +194,6 @@ HTML: ${html.substring(0, 10000)}`,
           continue;
         }
 
-        // 4b. Scraping risultati da PCS
         const risultatiPCS = await step.run(`scraping-risultati-${gara.nome}`, async () => {
           const url = `${PCS_BASE}${gara.urlRelativo}`;
           const html = await fetchPage(url);
@@ -242,7 +233,6 @@ Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
           continue;
         }
 
-        // 4c. Cerca notizie su fonti esterne
         const fontiEsterne = await step.run(`fonti-esterne-${gara.nome}`, async () => {
           const fonti = [
             `https://www.cyclingnews.com/search/?q=${encodeURIComponent(gara.nome)}`,
@@ -251,21 +241,16 @@ Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
           const testi: string[] = [];
           for (const url of fonti) {
             const html = await fetchPage(url);
-            if (!html.startsWith("ERRORE")) {
-              testi.push(html.substring(0, 2000));
-            }
+            if (!html.startsWith("ERRORE")) testi.push(html.substring(0, 2000));
           }
           return testi.join("\n---\n");
         });
 
         const haNotizie = fontiEsterne.length > 100;
-
-        // 4d. Seleziona stile e struttura random
         const stile = STILI[Math.floor(Math.random() * STILI.length)];
         const struttura = STRUTTURE[Math.floor(Math.random() * STRUTTURE.length)];
 
         if (haNotizie) {
-          // 4e. Genera articolo IT
           const articoloIT = await step.run(`genera-it-${gara.nome}`, async () => {
             const top10 = risultatiPCS.classificaArrivo
               .slice(0, 10)
@@ -334,7 +319,6 @@ OUTPUT OBBLIGATORIO:
             return result.object;
           });
 
-          // 4f. Genera articolo EN
           const articoloEN = await step.run(`genera-en-${gara.nome}`, async () => {
             const result = await generateObject({
               model: google("gemini-1.5-flash"),
@@ -357,7 +341,6 @@ DO NOT invent anything. Keep all facts identical.`,
             return result.object;
           });
 
-          // 4g. Pubblica articolo in bozza su RC
           const pubblicazione = await step.run(`pubblica-${gara.nome}`, async () => {
             const res = await axios.post(
               `${RC_BASE}/api/admin/articles`,
@@ -386,13 +369,11 @@ DO NOT invent anything. Keep all facts identical.`,
           garaReport.azioni.push("Nessuna fonte esterna trovata — solo risultati caricati");
         }
 
-        // 4h. Fuzzy match con gare RC
         const garaRC = await step.run(`match-gara-${gara.nome}`, async () => {
           return fuzzyMatch(gara.nome, rcGare, gara.genere);
         });
 
         if (garaRC) {
-          // 4i. Upload risultati come CSV
           await step.run(`upload-risultati-${gara.nome}`, async () => {
             const csvBuffer = generaCSV(risultatiPCS.classificaArrivo);
             const form = new FormData();
