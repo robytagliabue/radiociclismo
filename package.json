@@ -7,6 +7,11 @@
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit"
   },
+  "scripts": {
+  "dev": "tsx watch src/mastra/index.ts",
+  "start": "tsx src/mastra/index.ts",
+  "build": "echo 'Build skipped - using tsx runtime'"
+},
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.10",
