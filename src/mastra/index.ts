@@ -6,9 +6,6 @@ import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as serveInngest } from 'inngest/hono';
 
-/**
- * 1. CONFIGURAZIONE MASTRA
- */
 export const mastra = new Mastra({
   id: 'radiociclismo',
   agents: [cyclingAgent],
@@ -17,32 +14,18 @@ export const mastra = new Mastra({
 
 const app = new Hono();
 
-/**
- * 2. ROTTA DI TEST (Root)
- */
-app.get('/', (c) => {
-  return c.text('Radiociclismo Engine: Online 🚴‍♂️');
-});
+app.get('/', (c) => c.text('Radiociclismo Engine: Online 🚴‍♂️'));
 
-/**
- * 3. ROTTA INNGEST (API ENDPOINT)
- */
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  
-  // --- CONFIGURAZIONE CHIAVE ---
-  // Incolla qui la chiave "sign-nm-..." che trovi nelle Settings di Inngest
-  const MY_HARDCODED_KEY = "sign-nm-INCOLLA_QUI_LA_TUA_CHIAVE"; 
-  
-  // Usiamo la variabile di Railway se presente, altrimenti quella scritta a mano
-  const signingKey = process.env.INNGEST_SIGNING_KEY || MY_HARDCODED_KEY;
+  // 1. LA CHIAVE: Assicurati che inizi con "sign-nm-"
+  const MY_REAL_KEY = "signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e"; 
 
-  // Inizializzazione dinamica del client per evitare crash allo startup
+  console.log(`[INNGEST] Ricevuta richiesta ${c.req.method}`);
+
   const inngest = new Inngest({ 
-    id: 'radiociclismo',
-    eventKey: process.env.INNGEST_EVENT_KEY || 'no-key-yet'
+    id: 'radiociclismo' 
   });
 
-  // Definizione della funzione all'interno dell'handler
   const cyclingFn = inngest.createFunction(
     { 
       id: 'cycling-workflow', 
@@ -55,34 +38,29 @@ app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
     }
   );
 
-  // Risposta rapida per i test da browser (GET)
+  // Se è un browser (GET), diamo conferma
   if (c.req.method === 'GET' && !c.req.header('x-inngest-signature')) {
     return c.json({
       status: "Running",
       app: "radiociclismo",
-      key_detected: !!process.env.INNGEST_SIGNING_KEY || MY_HARDCODED_KEY !== "signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e",
-      message: "Pronto per il Sync di Inngest"
+      key_present: MY_REAL_KEY.startsWith("sign-nm-") && MY_REAL_KEY.length > 20
     });
   }
 
-  // Handler ufficiale di Inngest
-  const handler = serveInngest({
-    client: inngest,
-    functions: [cyclingFn],
-    signingKey: signingKey,
-  });
-  
-  return handler(c);
+  try {
+    const handler = serveInngest({
+      client: inngest,
+      functions: [cyclingFn],
+      signingKey: MY_REAL_KEY,
+    });
+    return await handler(c);
+  } catch (err: any) {
+    // Questo log su Railway ci dirà la verità se esce 500
+    console.error("--- ERRORE CRITICO INNGEST ---");
+    console.error(err.message);
+    return c.json({ error: err.message }, 500);
+  }
 });
 
-/**
- * 4. AVVIO SERVER
- */
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server radiociclismo in corsa sulla porta ${port}`);
-
-serve({
-  fetch: app.fetch,
-  port: port,
-  hostname: '0.0.0.0',
-});
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
