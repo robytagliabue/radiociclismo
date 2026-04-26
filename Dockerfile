@@ -2,14 +2,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Installa curl
+RUN apk add --no-cache curl
+
 COPY package*.json ./
 RUN npm install
 
-# Invalida cache
-ARG CACHEBUST=2
+ARG CACHEBUST=3
 COPY . .
-
-RUN echo "=== src ===" && ls -la /app/src && echo "=== mastra ===" && ls -la /app/src/mastra
 
 EXPOSE 8080
 
