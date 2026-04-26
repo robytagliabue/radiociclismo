@@ -2,7 +2,7 @@
 mkdir -p src
 
 # Crea il file
-cat > src/index.ts << 'EOF'
+cat > src/Index.ts << 'EOF'
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { Inngest } from 'inngest';
