@@ -27,20 +27,11 @@ app.get("/debug", (c) => {
 });
 
 app.post("/trigger/articolo", async (c) => {
-  const body = await c.req.json();
-  if (!body.pcsUrl) {
-    return c.json({ error: "pcsUrl obbligatorio" }, 400);
-  }
   await inngest.send({
     name: "cycling/generate.article",
-    data: {
-      pcsUrl: body.pcsUrl,
-      nomeGara: body.nomeGara ?? "",
-      tipoGara: body.tipoGara ?? "singola",
-      categoria: body.categoria ?? "men",
-    },
+    data: {},
   });
-  return c.json({ success: true, message: "Workflow avviato!" });
+  return c.json({ success: true, message: "Workflow avviato — controlla Inngest per il progresso" });
 });
 
 app.get("/gara/csv/:externalId", async (c) => {
@@ -56,9 +47,8 @@ app.get("/gara/csv/:externalId", async (c) => {
   const csv =
     "Posizione,Nome,Squadra,Distacco\n" +
     res.rows
-      .map(
-        (r: any) =>
-          `${r.position},"${r.cyclist_name}","${r.team_name}","${r.time_gap}"`
+      .map((r: any) =>
+        `${r.position},"${r.cyclist_name}","${r.team_name}","${r.time_gap}"`
       )
       .join("\n");
   c.header("Content-Type", "text/csv");
