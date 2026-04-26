@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { serve as inngestServe } from "inngest/hono";
 import { inngest } from "./inngest.js";
 import { cyclingWorkflowFn } from "./cyclingWorkflow.js";
+import { ensurePublishedArticlesTable } from "./db.js";
 
 const app = new Hono();
 
@@ -18,6 +19,7 @@ app.get("/debug", (c) => {
     INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY ? "presente" : "mancante",
     INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY ? "presente" : "mancante",
     GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "presente" : "mancante",
+    DATABASE_URL: process.env.DATABASE_URL ? "presente" : "mancante",
     PORT: process.env.PORT ?? "mancante",
   });
 });
@@ -36,5 +38,15 @@ app.get("/", (c) => {
 });
 
 const port = Number(process.env.PORT) || 8080;
-serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
-console.log("RadioCiclismo online sulla porta " + port);
+
+// Crea le tabelle al primo avvio
+ensurePublishedArticlesTable()
+  .then(() => {
+    console.log("Tabelle database pronte");
+    serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
+    console.log("RadioCiclismo online sulla porta " + port);
+  })
+  .catch((err) => {
+    console.error("Errore database:", err);
+    process.exit(1);
+  });
