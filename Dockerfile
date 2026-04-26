@@ -7,7 +7,8 @@ RUN npm install
 
 COPY . .
 
-RUN echo "=== CONTENUTO /app ===" && ls -la /app && echo "=== CONTENUTO /app/src ===" && ls -la /app/src || echo "❌ src/ NON ESISTE"
+RUN echo "=== src ===" && ls -la /app/src && echo "=== src/mastra ===" && ls -la /app/src/mastra
 
 EXPOSE 8080
+
 CMD ["npm", "run", "start"]
