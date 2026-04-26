@@ -71,3 +71,7 @@ app.get("/gara/csv/:externalId", async (c) => {
   c.header("Content-Disposition", `attachment; filename="risultati.csv"`);
   return c.body(csv);
 });
+  .catch((err) => {
+    console.error("Errore database:", err);
+    process.exit(1);
+  });
