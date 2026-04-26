@@ -7,6 +7,11 @@
     "start": "tsx src/index.ts",
     "build": "echo 'Build OK'"
   },
+  "scripts": {
+  "dev": "tsx watch src/mastra/index.ts",
+  "start": "tsx src/mastra/index.ts",
+  "build": "echo 'Build OK'"
+},
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.10",
