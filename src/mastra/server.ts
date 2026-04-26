@@ -1,3 +1,34 @@
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { serve as inngestServe } from "inngest/hono";
+import { inngest } from "./inngest.js";
+import { cyclingWorkflowFn } from "./cyclingWorkflow.js";
+import { ensurePublishedArticlesTable, pool } from "./db.js";
+
+const app = new Hono();
+
+const inngestHandler = inngestServe({
+  client: inngest,
+  functions: [cyclingWorkflowFn],
+});
+
+app.on(["GET", "POST", "PUT"], "/api/inngest", (c) => inngestHandler(c));
+
+app.get("/debug", (c) => {
+  return c.json({
+    INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY ? "presente" : "mancante",
+    INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY ? "presente" : "mancante",
+    GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY ? "presente" : "mancante",
+    DATABASE_URL: process.env.DATABASE_URL ? "presente" : "mancante",
+    RC_USERNAME: process.env.RC_USERNAME ? "presente" : "mancante",
+    RC_PASSWORD: process.env.RC_PASSWORD ? "presente" : "mancante",
+    PORT: process.env.PORT ?? "mancante",
+  });
+});
+
+app.post("/trigger/articolo", async (c) => {
+  const body = await c.req.json();
+  if (!body.pcsUrl)
 // Aggiungi questa route al server esistente
 app.post("/trigger/articolo", async (c) => {
   const body = await c.req.json();
