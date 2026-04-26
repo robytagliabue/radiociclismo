@@ -1,19 +1,15 @@
-FROM node:22-slim
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Installiamo le dipendenze
-COPY package.json ./
-RUN npm install --legacy-peer-deps
+COPY package*.json ./
+RUN npm install
 
-# Copiamo tutto il resto
 COPY . .
 
-# Build di Mastra
+# Verifica sintassi TypeScript senza emettere file
 RUN npm run build
 
-# Esponiamo la porta 3000
-EXPOSE 3000
+EXPOSE 8080
 
-# Avviamo il server di Mastra
-CMD ["npm", "start"]
+CMD ["npm", "run", "start"]
