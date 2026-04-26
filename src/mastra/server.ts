@@ -76,13 +76,9 @@ app.get("/", (c) => {
 
 const port = Number(process.env.PORT) || 8080;
 
+serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
+console.log("RadioCiclismo online sulla porta " + port);
+
 ensurePublishedArticlesTable()
-  .then(() => {
-    console.log("Tabelle database pronte");
-    serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
-    console.log("RadioCiclismo online sulla porta " + port);
-  })
-  .catch((err) => {
-    console.error("Errore database:", err);
-    process.exit(1);
-  });
+  .then(() => console.log("Tabelle database pronte"))
+  .catch((err) => console.error("Warning database:", err.message));
