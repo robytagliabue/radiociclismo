@@ -5,40 +5,35 @@ import { serve as serveInngest } from 'inngest/hono';
 
 const app = new Hono();
 
-// Client Inngest - Usiamo l'ID che Inngest si aspetta
+// Client Inngest
 const inngest = new Inngest({ id: 'radiociclismo-test' });
 
 const dummyFn = inngest.createFunction(
-  { 
-    id: 'test-ping', 
-    name: 'Test Ping',
-    triggers: [{ event: 'test/ping' }] 
-  },
+  { id: 'test-ping', name: 'Test Ping', triggers: [{ event: 'test/ping' }] },
   async () => { return { message: 'pong' }; }
 );
 
-// ROTTA PRECISA: Rispondiamo esattamente a quello che Inngest sta chiamando
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  console.log(`[INNGEST CALL] Ricevuto ${c.req.method} su /api/inngest`);
+  console.log(`[DEBUG] Richiesta Inngest ricevuta: ${c.req.method}`);
   
-  const handler = serveInngest({
-    client: inngest,
-    functions: [dummyFn],
-    // Assicurati che questa sia la signkey che hai visto prima
-    signingKey: 'signkeyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-  });
-  
-  return handler(c);
+  try {
+    const handler = serveInngest({
+      client: inngest,
+      functions: [dummyFn],
+      // PROVA 1: Se hai la chiave, incollala qui sotto. 
+      // PROVA 2: Se dà ancora 500, commenta la riga signingKey e metti isDev: true
+      signingKey: 'signkeyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', 
+      // isDev: true, 
+    });
+    
+    return await handler(c);
+  } catch (err: any) {
+    console.error("[CRASH LOG]:", err.message);
+    return c.json({ error: "Crash interno", details: err.message }, 500);
+  }
 });
 
-// Pagina di cortesia per vedere se il server è vivo
-app.get('/', (c) => c.text('Server Radiociclismo: In ascolto su /api/inngest 🚴‍♂️'));
+app.get('/', (c) => c.text('Server Online 🚴‍♂️'));
 
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Online su porta ${port}`);
-
-serve({
-  fetch: app.fetch,
-  port: port,
-  hostname: '0.0.0.0',
-});
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
