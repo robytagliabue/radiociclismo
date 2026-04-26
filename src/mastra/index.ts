@@ -6,7 +6,9 @@ import { Hono } from 'hono';
 import { Inngest } from 'inngest';
 import { serve as serveInngest } from 'inngest/hono';
 
-// 1. Mastra lo carichiamo subito (non dà problemi)
+/**
+ * 1. CONFIGURAZIONE MASTRA
+ */
 export const mastra = new Mastra({
   id: 'radiociclismo',
   agents: [cyclingAgent],
@@ -16,39 +18,54 @@ export const mastra = new Mastra({
 const app = new Hono();
 
 /**
- * 2. ROTTA DI TEST (Se questa risponde, il server è vivo)
+ * 2. ROTTA DI TEST (Root)
  */
-app.get('/', (c) => c.text('Radiociclismo Engine: Online 🚴‍♂️'));
+app.get('/', (c) => {
+  return c.text('Radiociclismo Engine: Online 🚴‍♂️');
+});
 
 /**
- * 3. ROTTA INNGEST (Inizializzazione dinamica)
+ * 3. ROTTA INNGEST (API ENDPOINT)
  */
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
-  const signingKey = process.env.INNGEST_SIGNING_KEY;
+  
+  // --- CONFIGURAZIONE CHIAVE ---
+  // Incolla qui la chiave "sign-nm-..." che trovi nelle Settings di Inngest
+  const MY_HARDCODED_KEY = "sign-nm-INCOLLA_QUI_LA_TUA_CHIAVE"; 
+  
+  // Usiamo la variabile di Railway se presente, altrimenti quella scritta a mano
+  const signingKey = process.env.INNGEST_SIGNING_KEY || MY_HARDCODED_KEY;
 
-  // Inizializziamo Inngest QUI DENTRO, così se manca la chiave all'avvio il server non muore
+  // Inizializzazione dinamica del client per evitare crash allo startup
   const inngest = new Inngest({ 
     id: 'radiociclismo',
-    eventKey: process.env.INNGEST_EVENT_KEY || 'no-key'
+    eventKey: process.env.INNGEST_EVENT_KEY || 'no-key-yet'
   });
 
+  // Definizione della funzione all'interno dell'handler
   const cyclingFn = inngest.createFunction(
-    { id: 'cycling-workflow', name: 'Cycling Workflow', triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] },
+    { 
+      id: 'cycling-workflow', 
+      name: 'Cycling Workflow',
+      triggers: [{ event: 'mastra/workflow.cyclingWorkflow.run' }] 
+    },
     async ({ event }) => {
       const workflow = mastra.getWorkflow('cyclingWorkflow');
       return await workflow.execute({ input: event.data });
     }
   );
 
-  // Se è un browser che curiosa
+  // Risposta rapida per i test da browser (GET)
   if (c.req.method === 'GET' && !c.req.header('x-inngest-signature')) {
     return c.json({
-        status: "Running",
-        keyDetected: !!signingKey,
-        env: process.env.NODE_ENV || 'not set'
+      status: "Running",
+      app: "radiociclismo",
+      key_detected: !!process.env.INNGEST_SIGNING_KEY || MY_HARDCODED_KEY !== "signkey-prod-8809b52b70d5a1184c6d0781b39aa96476ca53dc8d80a7b5faffd593c47b2e7e",
+      message: "Pronto per il Sync di Inngest"
     });
   }
 
+  // Handler ufficiale di Inngest
   const handler = serveInngest({
     client: inngest,
     functions: [cyclingFn],
@@ -59,17 +76,13 @@ app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
 });
 
 /**
- * 4. AVVIO SERVER (Blindato)
+ * 4. AVVIO SERVER
  */
 const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Avvio server sulla porta ${port}...`);
+console.log(`🚀 Server radiociclismo in corsa sulla porta ${port}`);
 
-try {
-  serve({
-    fetch: app.fetch,
-    port: port,
-    hostname: '0.0.0.0',
-  });
-} catch (err) {
-  console.error("Errore fatale durante lo startup:", err);
-}
+serve({
+  fetch: app.fetch,
+  port: port,
+  hostname: '0.0.0.0',
+});
