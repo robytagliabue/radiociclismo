@@ -95,18 +95,14 @@ function normalizzaNome(nome: string): string {
 function fuzzyMatch(pcsNome: string, rcGare: any[], genere: string): any | null {
   const pcsNorm = normalizzaNome(pcsNome);
   const pcsParole = pcsNorm.split(/\s+/).filter(p => p.length >= 3);
-
   let miglior: any = null;
   let migliorScore = 0;
-
   for (const gara of rcGare) {
     if (genere === "women" && gara.gender !== "women") continue;
     if (genere === "men" && gara.gender === "women") continue;
-
     const rcNorm = normalizzaNome(gara.title);
     const match = pcsParole.filter(p => rcNorm.includes(p)).length;
     const score = pcsParole.length > 0 ? match / pcsParole.length : 0;
-
     if (score >= 0.7 && score > migliorScore) {
       migliorScore = score;
       miglior = gara;
@@ -152,7 +148,7 @@ export const cyclingWorkflowFn = inngest.createFunction(
       if (html.startsWith("ERRORE")) throw new Error(html);
 
       const result = await generateObject({
-        model: google("gemini-1.5-flash"),
+        model: google("gemini-2.0-flash"),
         prompt: `Analizza questo HTML di ProCyclingStats e trova tutte le gare FINITE oggi (status "finished" o "result").
 Per ogni gara estrai: nome, url relativo (es /race/giro-d-italia/2026/stage-5), categoria, genere (men/women), tipo (singola/tappa).
 HTML: ${html.substring(0, 10000)}`,
@@ -200,7 +196,7 @@ HTML: ${html.substring(0, 10000)}`,
           if (html.startsWith("ERRORE")) return null;
 
           const result = await generateObject({
-            model: google("gemini-1.5-flash"),
+            model: google("gemini-2.0-flash"),
             prompt: `Estrai i risultati da questo HTML di ProCyclingStats per la gara "${gara.nome}".
 Estrai top 10 classifica arrivo. Se è una tappa estrai anche classifica generale (top 5).
 Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
@@ -265,7 +261,7 @@ Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
               : "";
 
             const result = await generateObject({
-              model: google("gemini-1.5-flash"),
+              model: google("gemini-2.0-flash"),
               prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
 
 REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
@@ -321,7 +317,7 @@ OUTPUT OBBLIGATORIO:
 
           const articoloEN = await step.run(`genera-en-${gara.nome}`, async () => {
             const result = await generateObject({
-              model: google("gemini-1.5-flash"),
+              model: google("gemini-2.0-flash"),
               prompt: `You are a senior cycling journalist for RadioCiclismo.com.
 Translate and adapt this Italian article to professional English journalism.
 Style: ${stile.id}
