@@ -1,13 +1,12 @@
 import { Inngest } from "inngest";
 
-/**
- * CLIENT INNGEST PER RADIOCICLISMO
- * Soluzione al problema NESTING_STEPS: rimosso il realtimeMiddleware.
- */
-export const inngest = new Inngest({ 
+export const inngest = new Inngest({
   id: "radiociclismo",
-  middleware: [] 
+  eventKey: process.env.INNGEST_EVENT_KEY,
+  signingKey: process.env.INNGEST_SIGNING_KEY,
 });
+
+export const CYCLING_WORKFLOW_EVENT = "cycling/generate.article";
 
 /**
  * Nome del trigger per il workflow di generazione articoli
