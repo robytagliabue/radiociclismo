@@ -9,7 +9,7 @@
   },
   "scripts": {
   "dev": "tsx watch src/mastra/index.ts",
-  "start": "tsx src/mastra/inngest.ts",
+  "start": "tsx src/mastra/server.ts"
   "build": "echo 'Build OK'"
 },
   "dependencies": {
