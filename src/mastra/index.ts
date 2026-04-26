@@ -5,40 +5,40 @@ import { serve as serveInngest } from 'inngest/hono';
 
 const app = new Hono();
 
-// 1. Client base
+// Client Inngest - Usiamo l'ID che Inngest si aspetta
 const inngest = new Inngest({ id: 'radiociclismo-test' });
 
-/**
- * 2. FUNZIONE CORRETTA
- * Il primo argomento contiene ID e Triggers. 
- * Il secondo argomento è la funzione (handler).
- */
 const dummyFn = inngest.createFunction(
   { 
     id: 'test-ping', 
     name: 'Test Ping',
-    triggers: [{ event: 'test/ping' }] // I trigger vanno qui dentro!
+    triggers: [{ event: 'test/ping' }] 
   },
-  async () => { 
-    return { message: 'pong' }; 
-  }
+  async () => { return { message: 'pong' }; }
 );
 
-app.get('/', (c) => c.text('Server di Test Corretto: Online 🚴‍♂️'));
-
-app.on(['GET', 'POST', 'PUT'], '/api/v1/sync', async (c) => {
-  try {
-    const handler = serveInngest({
-      client: inngest,
-      functions: [dummyFn],
-    });
-    return await handler(c);
-  } catch (e: any) {
-    return c.json({ error: e.message }, 500);
-  }
+// ROTTA PRECISA: Rispondiamo esattamente a quello che Inngest sta chiamando
+app.on(['GET', 'POST', 'PUT'], '/api/inngest', async (c) => {
+  console.log(`[INNGEST CALL] Ricevuto ${c.req.method} su /api/inngest`);
+  
+  const handler = serveInngest({
+    client: inngest,
+    functions: [dummyFn],
+    // Assicurati che questa sia la signkey che hai visto prima
+    signingKey: 'signkeyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+  });
+  
+  return handler(c);
 });
 
-const port = Number(process.env.PORT) || 8080;
-console.log(`🚀 Server in ascolto su porta ${port}`);
+// Pagina di cortesia per vedere se il server è vivo
+app.get('/', (c) => c.text('Server Radiociclismo: In ascolto su /api/inngest 🚴‍♂️'));
 
-serve({ fetch: app.fetch, port, hostname: '0.0.0.0' });
+const port = Number(process.env.PORT) || 8080;
+console.log(`🚀 Online su porta ${port}`);
+
+serve({
+  fetch: app.fetch,
+  port: port,
+  hostname: '0.0.0.0',
+});
