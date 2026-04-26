@@ -2,26 +2,24 @@
   "name": "radiociclismo-engine",
   "version": "2.1.12",
   "type": "module",
-  "main": "src/mastra/index.ts",
   "scripts": {
-  "start": "tsx src/mastra/index.ts",
-  "build": "echo 'Skipping build step...'" 
-},
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit"
+  },
   "dependencies": {
-    "@hono/node-server": "latest",
-    "hono": "latest",
-    "mastra": "latest",
-    "@mastra/core": "latest",
-    "inngest": "latest",
-    "tsx": "latest",
-    "ai": "latest",
-    "@ai-sdk/google": "latest",
-    "zod": "latest",
-    "axios": "latest",
-    "typescript": "latest"
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.7.10",
+    "inngest": "^3.29.0",
+    "tsx": "^4.19.3",
+    "ai": "^4.3.16",
+    "@ai-sdk/google": "^1.2.19",
+    "zod": "^3.24.3",
+    "axios": "^1.8.4"
   },
   "devDependencies": {
-    "@types/node": "latest"
+    "@types/node": "^22.15.3",
+    "typescript": "^5.8.3"
   },
   "engines": {
     "node": ">=20.0.0"
