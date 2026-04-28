@@ -2,8 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Installa curl
-RUN apk add --no-cache curl
+# Installa curl e le librerie per il supporto HTTP/2 (nghttp2)
+# Su Alpine è necessario aggiungere esplicitamente queste dipendenze
+RUN apk add --no-cache \
+    curl \
+    libgcc \
+    libstdc++ \
+    nss \
+    libcurl \
+    nghttp2-libs
 
 COPY package*.json ./
 RUN npm install
