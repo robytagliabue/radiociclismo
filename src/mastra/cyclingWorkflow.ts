@@ -287,7 +287,7 @@ export const cyclingWorkflowFn = inngest.createFunction(
               .join("\n");
 
             const result = await generateObject({
-              model: google("gemini-2.0-flash"),
+              model: google("gemini-2.5-flash-preview-04-17"),
               prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
 
 REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
@@ -334,7 +334,7 @@ OUTPUT OBBLIGATORIO:
 
           const articoloEN = await step.run(`genera-en-${gara.nome}`, async () => {
             const result = await generateObject({
-              model: google("gemini-2.0-flash"),
+              model: google("gemini-2.5-flash-preview-04-17"),
               prompt: `You are a senior cycling journalist for RadioCiclismo.com.
 Translate and adapt this Italian article to professional English journalism.
 
