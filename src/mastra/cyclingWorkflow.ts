@@ -220,14 +220,18 @@ export const cyclingWorkflowFn = inngest.createFunction(
       console.log("[PCS] Lunghezza HTML:", html.length);
       console.log("[PCS] È Cloudflare:", html.includes("Just a moment"));
 
-      // Stampa HTML a pezzi da 500 char per vedere la struttura reale
-      for (let i = 0; i < Math.min(html.length, 4000); i += 500) {
+      // Stampa HTML dal carattere 4000 in poi dove sono le gare del giorno
+      for (let i = 4000; i < Math.min(html.length, 10000); i += 500) {
         console.log(`[PCS HTML ${i}-${i+500}]:`, html.substring(i, i + 500));
       }
 
-      // Cerca tutti i link race/ presenti nella pagina
-      const matches = html.match(/href="[^"]*race\/[^"]*"/g) || [];
-      console.log("[PCS] Link race/ trovati:", matches.slice(0, 10));
+      // Tutti i link race/ con contesto (50 char prima e dopo)
+      const allMatches = [...html.matchAll(/href="([^"]*race\/[^"]*)"/g)];
+      console.log("[PCS] Totale link race/:", allMatches.length);
+      allMatches.forEach((m, idx) => {
+        const pos = m.index || 0;
+        console.log(`[PCS] Link ${idx}:`, m[1], "| contesto:", html.substring(pos - 80, pos + 80));
+      });
 
       throw new Error("DEBUG STOP — controlla i log sopra");
     });
