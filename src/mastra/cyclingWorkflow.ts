@@ -71,6 +71,7 @@ async function fetchPage(url: string): Promise<string> {
       -H "Sec-Fetch-Mode: navigate" \
       -H "Sec-Fetch-Site: none" \
       -H "Sec-Fetch-User: ?1" \
+      -H "Upgrade-Insecure-Requests: 1" \
       --compressed \
       "${url}"`,
       { maxBuffer: 10 * 1024 * 1024 }
@@ -212,8 +213,8 @@ export const cyclingWorkflowFn = inngest.createFunction(
     });
 
     const gareOggi = await step.run("scraping-pcs-gare", async () => {
-      const anno = new Date().getFullYear();
-      const html = await fetchPage(`${PCS_BASE}/races.php?year=${anno}&circuit=1&class=&filter=Filter&s=date-of-stage`);
+      const oggi = new Date().toISOString().split("T")[0]; // "2026-04-28"
+      const html = await fetchPage(`${PCS_BASE}/races.php?date=${oggi}&circuit=&class=&filter=Filter`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
       // LOG DIAGNOSTICO — sempre visibile nei log Railway
