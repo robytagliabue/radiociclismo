@@ -87,59 +87,35 @@ function parseGareFromPCS(html: string): Array<{ nome: string; url: string; gene
   const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
   const urlsSeen = new Set<string>();
 
-  // DEBUG: logga tutti i tag <table> trovati per capire la struttura reale
-  console.log("[PCS PARSE] Numero tabelle trovate:", $("table").length);
-  $("table").each((i, el) => {
-    console.log(`[PCS PARSE] Tabella ${i} — class: "${$(el).attr("class")}" — righe: ${$(el).find("tr").length}`);
-  });
-
-  // Prova selettori multipli in cascata — il primo che funziona vince
-  const SELETTORI = [
-    "table.races-todo tr",
-    "table.races-finished tr",
-    ".hp-race-item",
-    "ul.raceListTile li",        // struttura alternativa PCS
-    "div.race-item",
-    "table tr",                   // fallback generico
-  ];
-
-  let elementiTrovati = 0;
-
-  for (const sel of SELETTORI) {
-    const trovati = $(sel).length;
-    console.log(`[PCS PARSE] Selettore "${sel}" — trovati: ${trovati}`);
-    if (trovati > 0) elementiTrovati += trovati;
-  }
-
-  // Usa il selettore più generico se quelli specifici falliscono
-  $("table.races-todo tr, table.races-finished tr, .hp-race-item, ul.raceListTile li").each((i, el) => {
+  // Struttura reale PCS: righe <tr> con data in <td class="hide cs500"> e link in <a href="race/...">
+  $("table tr").each((i, el) => {
     const $el = $(el);
 
-    // Cerca link che inizia con race/ o /race/
-    const link = $el.find("a[href*='race/']").first();
-
+    // Cerca link a gare (href="race/nome/anno")
+    const link = $el.find("a[href^='race/']").first();
     let nome = link.text().trim();
     let url = link.attr("href") || "";
 
-    // Normalizza URL: assicurati che inizi con /
-    if (url && !url.startsWith("/")) url = "/" + url;
-
     if (!nome || !url || urlsSeen.has(url)) return;
 
-    const testoRiga = $el.text().toLowerCase();
+    // Normalizza URL con slash iniziale
+    if (!url.startsWith("/")) url = "/" + url;
 
-    const isFinished =
-      testoRiga.includes("finished") ||
-      testoRiga.includes("result") ||
-      testoRiga.includes("prologue") ||
-      testoRiga.includes("stage");
+    // Estrai la data dalla cella con classe cs500
+    const dataCell = $el.find("td.cs500, td[class*='cs500']").first().text().trim();
 
-    if (isFinished) {
-      urlsSeen.add(url);
-      const genere = nome.toLowerCase().includes("women") || nome.toLowerCase().includes("femm") ? "women" : "men";
-      gare.push({ nome, url, genere, stato: "finished" });
-      console.log(`[PCS PARSE] ✅ Gara trovata: "${nome}" → ${url}`);
-    }
+    // Considera solo gare di oggi (data nel formato dd.mm)
+    const oggi = new Date();
+    const oggiStr = `${String(oggi.getDate()).padStart(2, "0")}.${String(oggi.getMonth() + 1).padStart(2, "0")}`;
+    
+    // Includi la gara se la data corrisponde a oggi, oppure se non c'è data (per sicurezza)
+    const isOggi = !dataCell || dataCell.includes(oggiStr);
+    if (!isOggi) return;
+
+    urlsSeen.add(url);
+    const genere = nome.toLowerCase().includes("women") || nome.toLowerCase().includes("femm") ? "women" : "men";
+    gare.push({ nome, url, genere, stato: "finished" });
+    console.log(`[PCS PARSE] ✅ Gara trovata: "${nome}" (data: ${dataCell}) → ${url}`);
   });
 
   return gare;
@@ -220,20 +196,16 @@ export const cyclingWorkflowFn = inngest.createFunction(
       console.log("[PCS] Lunghezza HTML:", html.length);
       console.log("[PCS] È Cloudflare:", html.includes("Just a moment"));
 
-      // Stampa HTML dal carattere 4000 in poi dove sono le gare del giorno
-      for (let i = 4000; i < Math.min(html.length, 10000); i += 500) {
-        console.log(`[PCS HTML ${i}-${i+500}]:`, html.substring(i, i + 500));
+      const gare = parseGareFromPCS(html);
+
+      if (gare.length === 0) {
+        console.log("[PCS] ⚠️ Nessuna gara trovata per oggi. HTML 4000-6000:");
+        console.log(html.substring(4000, 6000));
+        throw new Error("Nessuna gara trovata su PCS per oggi");
       }
 
-      // Tutti i link race/ con contesto (50 char prima e dopo)
-      const allMatches = [...html.matchAll(/href="([^"]*race\/[^"]*)"/g)];
-      console.log("[PCS] Totale link race/:", allMatches.length);
-      allMatches.forEach((m, idx) => {
-        const pos = m.index || 0;
-        console.log(`[PCS] Link ${idx}:`, m[1], "| contesto:", html.substring(pos - 80, pos + 80));
-      });
-
-      throw new Error("DEBUG STOP — controlla i log sopra");
+      console.log(`[PCS] ✅ Trovate ${gare.length} gare:`, gare.map(g => g.nome));
+      return gare;
     });
 
     if (gareOggi.length === 0) {
