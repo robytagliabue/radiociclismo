@@ -56,7 +56,6 @@ async function getSessionCookie(): Promise<string> {
 
 async function fetchPage(url: string): Promise<string> {
   try {
-    // Aggiunto il flag -4 per forzare IPv4 ed evitare blocchi di rete su Railway
     const result = execSync(
       `curl -4 -s -L --http2 --max-time 30 \
       -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" \
@@ -87,26 +86,58 @@ function parseGareFromPCS(html: string): Array<{ nome: string; url: string; gene
   const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
   const urlsSeen = new Set<string>();
 
-  $("table.races-todo tr, table.races-finished tr, .hp-race-item").each((i, el) => {
+  // DEBUG: logga tutti i tag <table> trovati per capire la struttura reale
+  console.log("[PCS PARSE] Numero tabelle trovate:", $("table").length);
+  $("table").each((i, el) => {
+    console.log(`[PCS PARSE] Tabella ${i} — class: "${$(el).attr("class")}" — righe: ${$(el).find("tr").length}`);
+  });
+
+  // Prova selettori multipli in cascata — il primo che funziona vince
+  const SELETTORI = [
+    "table.races-todo tr",
+    "table.races-finished tr",
+    ".hp-race-item",
+    "ul.raceListTile li",        // struttura alternativa PCS
+    "div.race-item",
+    "table tr",                   // fallback generico
+  ];
+
+  let elementiTrovati = 0;
+
+  for (const sel of SELETTORI) {
+    const trovati = $(sel).length;
+    console.log(`[PCS PARSE] Selettore "${sel}" — trovati: ${trovati}`);
+    if (trovati > 0) elementiTrovati += trovati;
+  }
+
+  // Usa il selettore più generico se quelli specifici falliscono
+  $("table.races-todo tr, table.races-finished tr, .hp-race-item, ul.raceListTile li").each((i, el) => {
     const $el = $(el);
-    const link = $el.find("a[href^='race/']").first();
-    
+
+    // Cerca link che inizia con race/ o /race/
+    const link = $el.find("a[href*='race/']").first();
+
     let nome = link.text().trim();
     let url = link.attr("href") || "";
+
+    // Normalizza URL: assicurati che inizi con /
+    if (url && !url.startsWith("/")) url = "/" + url;
 
     if (!nome || !url || urlsSeen.has(url)) return;
 
     const testoRiga = $el.text().toLowerCase();
-    
-    const isFinished = testoRiga.includes("finished") || 
-                       testoRiga.includes("result") || 
-                       testoRiga.includes("prologue") ||
-                       testoRiga.includes("stage");
+
+    const isFinished =
+      testoRiga.includes("finished") ||
+      testoRiga.includes("result") ||
+      testoRiga.includes("prologue") ||
+      testoRiga.includes("stage");
 
     if (isFinished) {
       urlsSeen.add(url);
-      const genere = nome.toLowerCase().includes("women") ? "women" : "men";
+      const genere = nome.toLowerCase().includes("women") || nome.toLowerCase().includes("femm") ? "women" : "men";
       gare.push({ nome, url, genere, stato: "finished" });
+      console.log(`[PCS PARSE] ✅ Gara trovata: "${nome}" → ${url}`);
     }
   });
 
@@ -184,22 +215,22 @@ export const cyclingWorkflowFn = inngest.createFunction(
       const html = await fetchPage(`${PCS_BASE}/races.php?date=today`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
-      // DEBUG: Vediamo cosa scarica Railway per capire se siamo bloccati
-      console.log("DEBUG PCS - Primi 200 caratteri HTML:", html.substring(0, 200));
+      // LOG DIAGNOSTICO — sempre visibile nei log Railway
+      console.log("[PCS] Lunghezza HTML ricevuto:", html.length, "caratteri");
+      console.log("[PCS] Primi 300 char:", html.substring(0, 300));
+      console.log("[PCS] È Cloudflare challenge:", html.includes("Just a moment") || html.includes("cf-browser-verification"));
+      console.log("[PCS] Contiene DOCTYPE:", html.includes("<!DOCTYPE"));
 
       const gare = parseGareFromPCS(html);
-      
-      if (gare.length === 0) {
-        throw new Error("Nessuna gara trovata su PCS con Cheerio");
-        console.log("[PCS DEBUG] Status risposta:", response.status);
-console.log("[PCS DEBUG] Primi 500 char HTML:", html.slice(0, 500));
-console.log("[PCS DEBUG] Contiene 'Just a moment':", html.includes("Just a moment"));
-console.log("[PCS DEBUG] Contiene 'cf-':", html.includes("cf-browser"));
-console.log("[PCS DEBUG] Selettore trovato:", $(".raceitem").length, "elementi");
-      }
-// Aggiungi PRIMA del throw a riga 193
 
-throw new Error("Nessuna gara trovata su PCS con Cheerio");
+      // LOG PRIMA del throw — ordine corretto
+      if (gare.length === 0) {
+        console.log("[PCS] ⚠️ Nessuna gara trovata. HTML completo (primi 2000 char):");
+        console.log(html.substring(0, 2000));
+        throw new Error("Nessuna gara trovata su PCS con Cheerio");
+      }
+
+      console.log(`[PCS] ✅ Trovate ${gare.length} gare:`, gare.map(g => g.nome));
       return gare;
     });
 
@@ -235,14 +266,14 @@ throw new Error("Nessuna gara trovata su PCS con Cheerio");
 
           const $ = cheerio.load(html);
           const classificaArrivo: any[] = [];
-          
+
           $("table tbody tr, div.result-row").each((i, el) => {
             const $el = $(el);
             const posizione = i + 1;
             const nome = $el.find("td:nth-child(2), .rider-name").text().trim();
             const squadra = $el.find("td:nth-child(3), .team-name").text().trim();
             const tempo = $el.find("td:nth-child(4), .time").text().trim();
-            
+
             if (nome) {
               classificaArrivo.push({ posizione, nome, squadra, tempo, distacco: "" });
             }
@@ -282,7 +313,7 @@ throw new Error("Nessuna gara trovata su PCS con Cheerio");
               .join("\n");
 
             const result = await generateObject({
-              model: google("gemini-2.0-flash"), // Corretto a 2.0-flash per stabilità Pro
+              model: google("gemini-2.0-flash"),
               prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
 
 REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
