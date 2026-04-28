@@ -80,8 +80,7 @@ async function fetchPage(url: string): Promise<string> {
     return `ERRORE: ${e.message}`;
   }
 }
-
-ffunction parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
+function parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
   const $ = cheerio.load(html);
   const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
   const urlsSeen = new Set<string>();
