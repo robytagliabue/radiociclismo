@@ -371,25 +371,34 @@ DO NOT invent anything. Keep all facts identical.`,
           });
 
           const pubblicazione = await step.run(`pubblica-${gara.nome}`, async () => {
-            const res = await axios.post(
-              `${RC_BASE}/api/admin/articles`,
-              {
-                slug: articoloIT.slug,
-                title: articoloIT.titolo,
-                excerpt: articoloIT.excerpt,
-                content: `${articoloIT.contenuto}\n\n${articoloIT.dettaglioExtra}`,
-                titleEn: articoloEN.titolo,
-                excerptEn: articoloEN.excerpt,
-                contentEn: articoloEN.contenuto,
-                author: "AI Agent",
-                publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // pubblica +1 ora dal run
-                images: [],
-                hashtags: articoloIT.tags,
-                published: false,
-              },
-              { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
-            );
-            return { id: res.data?.id, success: true };
+            const body = {
+              slug: articoloIT.slug,
+              title: articoloIT.titolo,
+              excerpt: articoloIT.excerpt,
+              content: `${articoloIT.contenuto}\n\n${articoloIT.dettaglioExtra}`,
+              titleEn: articoloEN.titolo,
+              excerptEn: articoloEN.excerpt,
+              contentEn: articoloEN.contenuto,
+              author: "AI Agent",
+              publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              images: [],
+              hashtags: articoloIT.tags,
+              published: false,
+            };
+            console.log("[PUBBLICA] Body inviato:", JSON.stringify(body, null, 2));
+            try {
+              const res = await axios.post(
+                `${RC_BASE}/api/admin/articles`,
+                body,
+                { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
+              );
+              console.log("[PUBBLICA] Risposta:", res.status, JSON.stringify(res.data));
+              return { id: res.data?.id, success: true };
+            } catch (err: any) {
+              console.error("[PUBBLICA] Errore status:", err.response?.status);
+              console.error("[PUBBLICA] Errore body:", JSON.stringify(err.response?.data));
+              throw err;
+            }
           });
 
           garaReport.azioni.push(`Articolo creato in bozza — ID: ${pubblicazione.id}`);
