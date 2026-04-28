@@ -242,6 +242,22 @@ export const cyclingWorkflowFn = inngest.createFunction(
           const $ = cheerio.load(html);
           const classificaArrivo: any[] = [];
 
+          // DEBUG: vediamo la struttura reale della pagina risultati PCS
+          console.log("[RISULTATI] URL:", url);
+          console.log("[RISULTATI] HTML lunghezza:", html.length);
+          console.log("[RISULTATI] Tabelle trovate:", $("table").length);
+          $("table").each((i, el) => {
+            const cls = $(el).attr("class") || "";
+            const righe = $(el).find("tr").length;
+            console.log(`[RISULTATI] Tabella ${i} class="${cls}" righe=${righe}`);
+            if (righe > 2) {
+              // Stampa le prime 2 righe di ogni tabella con più di 2 righe
+              $(el).find("tr").slice(0, 2).each((j, tr) => {
+                console.log(`[RISULTATI]   Riga ${j}:`, $(tr).text().replace(/\s+/g, " ").trim().substring(0, 150));
+              });
+            }
+          });
+
           $("table tbody tr, div.result-row").each((i, el) => {
             const $el = $(el);
             const posizione = i + 1;
@@ -253,6 +269,12 @@ export const cyclingWorkflowFn = inngest.createFunction(
               classificaArrivo.push({ posizione, nome, squadra, tempo, distacco: "" });
             }
           });
+
+          console.log("[RISULTATI] Corridori estratti:", classificaArrivo.length);
+          if (classificaArrivo.length > 0) {
+            console.log("[RISULTATI] Primo:", JSON.stringify(classificaArrivo[0]));
+            console.log("[RISULTATI] Secondo:", JSON.stringify(classificaArrivo[1]));
+          }
 
           return { classificaArrivo, percorso: "", distanzaKm: 0, dislivelloM: 0 };
         });
