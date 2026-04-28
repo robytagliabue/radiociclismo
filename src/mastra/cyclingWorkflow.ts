@@ -5,6 +5,7 @@ import { z } from "zod";
 import axios from "axios";
 import FormData from "form-data";
 import { execSync } from "child_process";
+import * as cheerio from "cheerio";
 
 const RC_BASE = "https://radiociclismo.com";
 const PCS_BASE = "https://www.procyclingstats.com";
@@ -80,6 +81,37 @@ async function fetchPage(url: string): Promise<string> {
   }
 }
 
+function parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
+  const $ = cheerio.load(html);
+  const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
+
+  // Selettori comuni per le gare su PCS
+  $("div.item, tr.race, a[href*='/race/']").each((i, el) => {
+    const $el = $(el);
+    
+    // Estrai nome
+    const nome = $el.find("a, .title, .name, h3").first().text().trim();
+    if (!nome) return;
+
+    // Estrai URL
+    let url = $el.find("a").first().attr("href") || "";
+    if (!url && $el.attr("href")) url = $el.attr("href") || "";
+    
+    // Estrai stato
+    const statoText = $el.text().toLowerCase();
+    const stato = statoText.includes("finished") || statoText.includes("result") ? "finished" : "unknown";
+    
+    // Estrai genere
+    const genere = statoText.includes("women") ? "women" : "men";
+
+    if (nome && url && stato === "finished") {
+      gare.push({ nome, url, genere, stato });
+    }
+  });
+
+  return gare;
+}
+
 function normalizzaNome(nome: string): string {
   return nome
     .toLowerCase()
@@ -95,14 +127,18 @@ function normalizzaNome(nome: string): string {
 function fuzzyMatch(pcsNome: string, rcGare: any[], genere: string): any | null {
   const pcsNorm = normalizzaNome(pcsNome);
   const pcsParole = pcsNorm.split(/\s+/).filter(p => p.length >= 3);
+
   let miglior: any = null;
   let migliorScore = 0;
+
   for (const gara of rcGare) {
     if (genere === "women" && gara.gender !== "women") continue;
     if (genere === "men" && gara.gender === "women") continue;
+
     const rcNorm = normalizzaNome(gara.title);
     const match = pcsParole.filter(p => rcNorm.includes(p)).length;
     const score = pcsParole.length > 0 ? match / pcsParole.length : 0;
+
     if (score >= 0.7 && score > migliorScore) {
       migliorScore = score;
       miglior = gara;
@@ -147,22 +183,14 @@ export const cyclingWorkflowFn = inngest.createFunction(
       const html = await fetchPage(`${PCS_BASE}/races.php?date=today`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
-      const result = await generateObject({
-        model: google("gemini-2.5-flash"),
-        prompt: `Analizza questo HTML di ProCyclingStats e trova tutte le gare FINITE oggi (status "finished" o "result").
-Per ogni gara estrai: nome, url relativo (es /race/giro-d-italia/2026/stage-5), categoria, genere (men/women), tipo (singola/tappa).
-HTML: ${html.substring(0, 10000)}`,
-        schema: z.object({
-          gare: z.array(z.object({
-            nome: z.string(),
-            urlRelativo: z.string(),
-            categoria: z.string(),
-            genere: z.enum(["men", "women"]),
-            tipo: z.enum(["singola", "tappa"]),
-          }))
-        }),
-      });
-      return result.object.gare;
+      // Usa cheerio invece di Gemini per parsare
+      const gare = parseGareFromPCS(html);
+      
+      if (gare.length === 0) {
+        throw new Error("Nessuna gara trovata su PCS con Cheerio");
+      }
+
+      return gare;
     });
 
     if (gareOggi.length === 0) {
@@ -191,36 +219,27 @@ HTML: ${html.substring(0, 10000)}`,
         }
 
         const risultatiPCS = await step.run(`scraping-risultati-${gara.nome}`, async () => {
-          const url = `${PCS_BASE}${gara.urlRelativo}`;
+          const url = `${PCS_BASE}${gara.url}`;
           const html = await fetchPage(url);
           if (html.startsWith("ERRORE")) return null;
 
-          const result = await generateObject({
-            model: google("gemini-2.5-flash"),
-            prompt: `Estrai i risultati da questo HTML di ProCyclingStats per la gara "${gara.nome}".
-Estrai top 10 classifica arrivo. Se è una tappa estrai anche classifica generale (top 5).
-Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
-            schema: z.object({
-              classificaArrivo: z.array(z.object({
-                posizione: z.number(),
-                nome: z.string(),
-                squadra: z.string(),
-                tempo: z.string().optional(),
-                distacco: z.string().optional(),
-                nazione: z.string().optional(),
-              })),
-              classificaGenerale: z.array(z.object({
-                posizione: z.number(),
-                nome: z.string(),
-                squadra: z.string(),
-                distacco: z.string().optional(),
-              })).optional(),
-              percorso: z.string().optional(),
-              distanzaKm: z.number().optional(),
-              dislivelloM: z.number().optional(),
-            }),
+          // Estrai risultati con Cheerio
+          const $ = cheerio.load(html);
+          const classificaArrivo: any[] = [];
+          
+          $("table tbody tr, div.result-row").each((i, el) => {
+            const $el = $(el);
+            const posizione = i + 1;
+            const nome = $el.find("td:nth-child(2), .rider-name").text().trim();
+            const squadra = $el.find("td:nth-child(3), .team-name").text().trim();
+            const tempo = $el.find("td:nth-child(4), .time").text().trim();
+            
+            if (nome) {
+              classificaArrivo.push({ posizione, nome, squadra, tempo, distacco: "" });
+            }
           });
-          return result.object;
+
+          return { classificaArrivo, percorso: "", distanzaKm: 0, dislivelloM: 0 };
         });
 
         if (!risultatiPCS) {
@@ -253,35 +272,21 @@ Non inventare nulla. HTML: ${html.substring(0, 10000)}`,
               .map(r => `${r.posizione}. ${r.nome} (${r.squadra}) ${r.distacco ?? ""}`)
               .join("\n");
 
-            const classGen = risultatiPCS.classificaGenerale
-              ? "\nClassifica Generale:\n" + risultatiPCS.classificaGenerale
-                  .slice(0, 5)
-                  .map(r => `${r.posizione}. ${r.nome} (${r.squadra}) ${r.distacco ?? ""}`)
-                  .join("\n")
-              : "";
-
             const result = await generateObject({
               model: google("gemini-2.5-flash"),
               prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
 
 REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
-DIVIETO ASSOLUTO di inventare tempi, distacchi, eventi o dichiarazioni.
 
 STILE DA USARE: ${stile.prompt}
 STRUTTURA: ${struttura}
 
 DATI REALI DELLA GARA:
 Nome: ${gara.nome}
-Categoria: ${gara.categoria}
 Genere: ${gara.genere === "women" ? "Donne" : "Uomini"}
-Tipo: ${gara.tipo}
-${risultatiPCS.percorso ? `Percorso: ${risultatiPCS.percorso}` : ""}
-${risultatiPCS.distanzaKm ? `Distanza: ${risultatiPCS.distanzaKm}km` : ""}
-${risultatiPCS.dislivelloM ? `Dislivello: ${risultatiPCS.dislivelloM}m` : ""}
 
 Top 10:
 ${top10}
-${classGen}
 
 Fonti esterne (usa solo fatti verificati):
 ${fontiEsterne.substring(0, 2000)}
@@ -289,11 +294,10 @@ ${fontiEsterne.substring(0, 2000)}
 OUTPUT OBBLIGATORIO:
 - Titolo (max efficacia, 0% clickbait)
 - Corpo articolo (250-400 parole, stile scelto)
-- Il Dettaglio Extra (paragrafo originale: ruolo gregario, impatto economico, ecc.)
+- Il Dettaglio Extra (paragrafo originale)
 - Meta description (max 140 caratteri)
-- Slug SEO (es. "giro-italia-2026-tappa-5-risultati")
-- Tags (3 tag: es. #WorldTour #Ciclismo #AnalisiTattica)
-- 5 titoli SEO alternativi
+- Slug SEO
+- Tags (3 tag)
 - Versione social (max 400 caratteri)
 - Versione Instagram (max 150 caratteri)
 - 8 bullet points riassuntivi
@@ -306,7 +310,6 @@ OUTPUT OBBLIGATORIO:
                 metaDescription: z.string(),
                 slug: z.string(),
                 tags: z.array(z.string()),
-                titoliAlternativi: z.array(z.string()),
                 versioneSocial: z.string(),
                 versioneInstagram: z.string(),
                 bulletPoints: z.array(z.string()),
@@ -320,12 +323,9 @@ OUTPUT OBBLIGATORIO:
               model: google("gemini-2.5-flash"),
               prompt: `You are a senior cycling journalist for RadioCiclismo.com.
 Translate and adapt this Italian article to professional English journalism.
-Style: ${stile.id}
 
 Italian title: ${articoloIT.titolo}
 Italian content: ${articoloIT.contenuto}
-Italian excerpt: ${articoloIT.excerpt}
-Detail Extra: ${articoloIT.dettaglioExtra}
 
 DO NOT invent anything. Keep all facts identical.`,
               schema: z.object({
@@ -360,7 +360,7 @@ DO NOT invent anything. Keep all facts identical.`,
           });
 
           garaReport.azioni.push(`Articolo creato in bozza — ID: ${pubblicazione.id}`);
-          garaReport.azioni.push(`Stile: ${stile.id} | Struttura: ${struttura.split("—")[0].trim()}`);
+          garaReport.azioni.push(`Stile: ${stile.id}`);
         } else {
           garaReport.azioni.push("Nessuna fonte esterna trovata — solo risultati caricati");
         }
@@ -384,7 +384,7 @@ DO NOT invent anything. Keep all facts identical.`,
             );
             return { success: true };
           });
-          garaReport.azioni.push(`Risultati caricati su gara RC: "${garaRC.title}" (ID: ${garaRC.id})`);
+          garaReport.azioni.push(`Risultati caricati su gara RC: "${garaRC.title}"`);
         } else {
           garaReport.azioni.push(`Nessuna gara RC abbinata — risultati NON caricati`);
         }
