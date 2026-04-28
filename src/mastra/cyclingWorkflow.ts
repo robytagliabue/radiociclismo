@@ -212,7 +212,8 @@ export const cyclingWorkflowFn = inngest.createFunction(
     });
 
     const gareOggi = await step.run("scraping-pcs-gare", async () => {
-      const html = await fetchPage(`${PCS_BASE}/races.php?date=today`);
+      const anno = new Date().getFullYear();
+      const html = await fetchPage(`${PCS_BASE}/races.php?year=${anno}&circuit=1&class=&filter=Filter&s=date-of-stage`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
       // LOG DIAGNOSTICO — sempre visibile nei log Railway
