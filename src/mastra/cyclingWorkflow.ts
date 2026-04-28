@@ -217,23 +217,19 @@ export const cyclingWorkflowFn = inngest.createFunction(
       const html = await fetchPage(`${PCS_BASE}/races.php?date=${oggi}&circuit=&class=&filter=Filter`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
-      // LOG DIAGNOSTICO — sempre visibile nei log Railway
-      console.log("[PCS] Lunghezza HTML ricevuto:", html.length, "caratteri");
-      console.log("[PCS] Primi 300 char:", html.substring(0, 300));
-      console.log("[PCS] È Cloudflare challenge:", html.includes("Just a moment") || html.includes("cf-browser-verification"));
-      console.log("[PCS] Contiene DOCTYPE:", html.includes("<!DOCTYPE"));
+      console.log("[PCS] Lunghezza HTML:", html.length);
+      console.log("[PCS] È Cloudflare:", html.includes("Just a moment"));
 
-      const gare = parseGareFromPCS(html);
-
-      // LOG PRIMA del throw — ordine corretto
-      if (gare.length === 0) {
-        console.log("[PCS] ⚠️ Nessuna gara trovata. HTML completo (primi 2000 char):");
-        console.log(html.substring(0, 2000));
-        throw new Error("Nessuna gara trovata su PCS con Cheerio");
+      // Stampa HTML a pezzi da 500 char per vedere la struttura reale
+      for (let i = 0; i < Math.min(html.length, 4000); i += 500) {
+        console.log(`[PCS HTML ${i}-${i+500}]:`, html.substring(i, i + 500));
       }
 
-      console.log(`[PCS] ✅ Trovate ${gare.length} gare:`, gare.map(g => g.nome));
-      return gare;
+      // Cerca tutti i link race/ presenti nella pagina
+      const matches = html.match(/href="[^"]*race\/[^"]*"/g) || [];
+      console.log("[PCS] Link race/ trovati:", matches.slice(0, 10));
+
+      throw new Error("DEBUG STOP — controlla i log sopra");
     });
 
     if (gareOggi.length === 0) {
