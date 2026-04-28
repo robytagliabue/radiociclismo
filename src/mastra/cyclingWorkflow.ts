@@ -191,8 +191,15 @@ export const cyclingWorkflowFn = inngest.createFunction(
       
       if (gare.length === 0) {
         throw new Error("Nessuna gara trovata su PCS con Cheerio");
+        console.log("[PCS DEBUG] Status risposta:", response.status);
+console.log("[PCS DEBUG] Primi 500 char HTML:", html.slice(0, 500));
+console.log("[PCS DEBUG] Contiene 'Just a moment':", html.includes("Just a moment"));
+console.log("[PCS DEBUG] Contiene 'cf-':", html.includes("cf-browser"));
+console.log("[PCS DEBUG] Selettore trovato:", $(".raceitem").length, "elementi");
       }
+// Aggiungi PRIMA del throw a riga 193
 
+throw new Error("Nessuna gara trovata su PCS con Cheerio");
       return gare;
     });
 
