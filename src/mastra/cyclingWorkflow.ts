@@ -13,31 +13,32 @@ const PCS_BASE = "https://www.procyclingstats.com";
 const STILI = [
   {
     id: "ANALISI_TATTICA",
-    prompt: `[ANALISI TATTICA] Focus su dinamiche di gara, pendenze, rapporti di forza e strategia delle ammiraglie. Tono autorevole e tecnico. Usa verbi specifici del ciclismo: scattare, fare il buco, scollinare, rilanciare. Evita aggettivi generici come "fantastico" o "incredibile".`
+    prompt: `Stile ANALISI TATTICA: descrivi come si è sviluppata la gara usando solo i dati forniti. Parla di attacchi, selezione, ritmo. Usa verbi tecnici del ciclismo: scattare, fare il buco, scollinare, rilanciare, andare in fuga. Tono autorevole. Evita aggettivi vuoti.`
   },
   {
     id: "LATO_UMANO",
-    prompt: `[LATO UMANO] Focus sulla resilienza, la fatica, la gestione del fallimento e la rinascita identitaria dell'atleta. Tono narrativo ed empatico. Costruisci una piccola storia, dai contesto, usa un ritmo più letterario.`
+    prompt: `Stile LATO UMANO: costruisci una narrazione sul vincitore basata SOLO sui dati forniti (nome, squadra, classifica). Non inventare dichiarazioni, non inventare retroscena. Tono empatico e narrativo. Se non hai dettagli biografici, concentrati sul significato sportivo del risultato.`
   },
   {
     id: "BUSINESS_MANAGEMENT",
-    prompt: `[BUSINESS & MANAGEMENT] Focus su sponsor, valore del brand, logistica dei team e transizione di carriera degli atleti. Tono asciutto e professionale. Stile giornalistico classico: pulito, informativo, equilibrato.`
+    prompt: `Stile BUSINESS & MANAGEMENT: analizza il risultato dal punto di vista della squadra vincitrice e del calendario stagionale, usando SOLO i dati forniti. Tono professionale e giornalistico. Non inventare strategie o dichiarazioni.`
   },
   {
     id: "FLASH_NEWS",
-    prompt: `[FLASH NEWS] Formato rapido. Frasi brevi, informative, dirette. Focus su: Cosa è successo, Chi è coinvolto, Classifica aggiornata. Stile minimal & rapido.`
+    prompt: `Stile FLASH NEWS: frasi brevi e dirette. Inizia con il fatto principale (chi ha vinto, dove, quando). Poi classifica sintetica. Poi un dato tecnico. Nessuna speculazione, nessun dettaglio inventato.`
   },
   {
     id: "TECH_INSIDER",
-    prompt: `[TECH & INSIDER] Focus su materiali, aerodinamica, alimentazione e dietro le quinte della carovana. Tono curioso e specialistico. Valorizza statistiche, record, confronti storici.`
+    prompt: `Stile TECH & INSIDER: analizza la gara dal punto di vista tecnico e statistico usando SOLO i dati forniti. Parla di distanza, caratteristiche del percorso se disponibili, distacchi in classifica. Tono specialistico. Non inventare dettagli tecnici.`
   },
 ];
 
 const STRUTTURE = [
-  `Struttura 1 — Classica: 1.Introduzione 2.Percorso 3.Favoriti 4.Cronaca 5.Top10 6.Classifiche 7.Analisi finale`,
-  `Struttura 2 — Cronaca prima: 1.Cronaca subito 2.Contesto gara 3.Percorso 4.Favoriti 5.Top10 6.Analisi tecnica`,
-  `Struttura 3 — Analisi prima: 1.Analisi tattica iniziale 2.Cronaca sintetica 3.Percorso 4.Top10 5.Prossime gare`,
+  `Struttura: 1.Apertura con il fatto principale (vincitore + gara) 2.Top 10 commentato 3.Analisi nello stile scelto 4.Conclusione`,
 ];
+
+// Contatore globale per rotazione stili
+let articoliGenerati = 0;
 
 async function getSessionCookie(): Promise<string> {
   try {
@@ -262,60 +263,56 @@ export const cyclingWorkflowFn = inngest.createFunction(
           continue;
         }
 
-        const fontiEsterne = await step.run(`fonti-esterne-${gara.nome}`, async () => {
-          const fonti = [
-            `https://www.cyclingnews.com/search/?q=${encodeURIComponent(gara.nome)}`,
-            `https://firstcycling.com/search.php?s=${encodeURIComponent(gara.nome)}`,
-          ];
-          const testi: string[] = [];
-          for (const url of fonti) {
-            const html = await fetchPage(url);
-            if (!html.startsWith("ERRORE")) testi.push(html.substring(0, 2000));
-          }
-          return testi.join("\n---\n");
-        });
+        // Rotazione stili deterministica (mod 5) — non casuale
+        const stile = STILI[articoliGenerati % STILI.length];
+        const struttura = STRUTTURE[0];
+        articoliGenerati++;
 
-        const haNotizie = fontiEsterne.length > 100;
-        const stile = STILI[Math.floor(Math.random() * STILI.length)];
-        const struttura = STRUTTURE[Math.floor(Math.random() * STRUTTURE.length)];
-
-        if (haNotizie) {
+        if (risultatiPCS.classificaArrivo.length > 0) {
           const articoloIT = await step.run(`genera-it-${gara.nome}`, async () => {
+            const vincitore = risultatiPCS.classificaArrivo[0];
             const top10 = risultatiPCS.classificaArrivo
               .slice(0, 10)
-              .map(r => `${r.posizione}. ${r.nome} (${r.squadra}) ${r.distacco ?? ""}`)
+              .map(r => `${r.posizione}. ${r.nome} (${r.squadra})${r.distacco ? " +" + r.distacco : " [vincitore]"}`)
               .join("\n");
 
             const result = await generateObject({
               model: google("gemini-2.5-flash-lite"),
-              prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
+              prompt: `Sei un redattore sportivo specializzato in ciclismo per RadioCiclismo.com.
 
-REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
+════════════════════════════════
+REGOLE ASSOLUTE — NON DEROGABILI
+════════════════════════════════
+1. USA ESCLUSIVAMENTE i dati forniti qui sotto. Non aggiungere fatti, citazioni, retroscena o dettagli non presenti.
+2. Se un dato manca (es. distacco, nazionalità), scrivi "–" o ometti il campo. MAI inventare.
+3. Il vincitore è sempre il corridore in POSIZIONE 1 della classifica fornita.
+4. Non menzionare fonti esterne, sponsor o dichiarazioni che non compaiono nei dati.
 
-STILE DA USARE: ${stile.prompt}
-STRUTTURA: ${struttura}
+════════════════════════════════
+DATI REALI DELLA GARA
+════════════════════════════════
+Gara: ${gara.nome}
+Anno: ${new Date().getFullYear()}
+Categoria: ${gara.genere === "women" ? "Ciclismo Femminile" : "Ciclismo Maschile"}
+Vincitore: ${vincitore.nome} (${vincitore.squadra})
 
-DATI REALI DELLA GARA:
-Nome: ${gara.nome}
-Genere: ${gara.genere === "women" ? "Donne" : "Uomini"}
-
-Top 10:
+Classifica finale Top 10:
 ${top10}
 
-Fonti esterne (usa solo fatti verificati):
-${fontiEsterne.substring(0, 2000)}
+════════════════════════════════
+STILE EDITORIALE DA APPLICARE
+════════════════════════════════
+${stile.prompt}
 
-OUTPUT OBBLIGATORIO:
-- Titolo (max efficacia, 0% clickbait)
-- Corpo articolo (250-400 parole, stile scelto)
-- Il Dettaglio Extra (paragrafo originale)
-- Meta description (max 140 caratteri)
-- Slug SEO
-- Tags (3 tag)
-- Versione social (max 400 caratteri)
-- Versione Instagram (max 150 caratteri)
-- 8 bullet points riassuntivi
-- Excerpt/anteprima (max 200 caratteri)`,
+════════════════════════════════
+STRUTTURA OBBLIGATORIA
+════════════════════════════════
+${struttura}
+
+Lunghezza corpo articolo: 250-350 parole.
+Titolo: sportivo, informativo, senza clickbait. Deve contenere il nome della gara e del vincitore.
+Slug SEO: formato kebab-case con nome-gara-vincitore-anno.
+Tags: massimo 3, specifici (nome gara, nome vincitore, squadra).`,
               schema: z.object({
                 titolo: z.string(),
                 excerpt: z.string(),
@@ -363,7 +360,7 @@ DO NOT invent anything. Keep all facts identical.`,
                 excerptEn: articoloEN.excerpt,
                 contentEn: articoloEN.contenuto,
                 author: "AI Agent",
-                publishAt: new Date().toISOString(),
+                publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // pubblica +1 ora dal run
                 images: [],
                 hashtags: articoloIT.tags,
                 published: false,
@@ -376,7 +373,7 @@ DO NOT invent anything. Keep all facts identical.`,
           garaReport.azioni.push(`Articolo creato in bozza — ID: ${pubblicazione.id}`);
           garaReport.azioni.push(`Stile: ${stile.id}`);
         } else {
-          garaReport.azioni.push("Nessuna fonte esterna trovata — solo risultati caricati");
+          garaReport.azioni.push("Classifica vuota — articolo saltato, solo risultati caricati");
         }
 
         const garaRC = await step.run(`match-gara-${gara.nome}`, async () => {
