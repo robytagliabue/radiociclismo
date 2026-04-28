@@ -85,37 +85,29 @@ function parseGareFromPCS(html: string): Array<{ nome: string; url: string; gene
   const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
   const urlsSeen = new Set<string>();
 
-  // Selettori per trovare i link alle gare (incluso prologue)
-  $("a[href*='/race/']").each((i, el) => {
+  // Selettore mirato sulle tabelle dei risultati di oggi
+  $("table.races-todo tr, table.races-finished tr, .hp-race-item").each((i, el) => {
     const $el = $(el);
+    const link = $el.find("a[href^='race/']").first();
     
-    // Estrai nome dalla pagina
-    let nome = $el.text().trim();
-    if (!nome) return;
+    let nome = link.text().trim();
+    let url = link.attr("href") || "";
 
-    // Estrai URL
-    let url = $el.attr("href") || "";
-    if (!url || urlsSeen.has(url)) return; // Evita duplicati
-    
-    urlsSeen.add(url);
+    if (!nome || !url || urlsSeen.has(url)) return;
 
-    // Estrai stato dal testo circostante
-    const parentText = $el.parent().text().toLowerCase();
-    const stato = 
-      parentText.includes("finished") || 
-      parentText.includes("result") ||
-      parentText.includes("ended")
-        ? "finished" 
-        : "unknown";
+    const testoRiga = $el.text().toLowerCase();
     
-    // Estrai genere
-    const genere = nome.toLowerCase().includes("women") || parentText.includes("women") ? "women" : "men";
+    // LOGICA DI FILTRO (Pescata da Replit + Fix Prologo)
+    // Accettiamo se: c'è un link, è finita, è un prologo o ha risultati
+    const isFinished = testoRiga.includes("finished") || 
+                       testoRiga.includes("result") || 
+                       testoRiga.includes("prologue") ||
+                       testoRiga.includes("stage");
 
-    // Accetta gare finite E che contengono "stage" o "prologue"
-    const isStageRace = url.includes("/stage-") || url.includes("/prologue") || url.includes("/prol");
-    
-    if (nome && url && stato === "finished" && isStageRace) {
-      gare.push({ nome, url, genere, stato });
+    if (isFinished) {
+      urlsSeen.add(url);
+      const genere = nome.toLowerCase().includes("women") ? "women" : "men";
+      gare.push({ nome, url, genere, stato: "finished" });
     }
   });
 
