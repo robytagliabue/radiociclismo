@@ -56,6 +56,7 @@ async function getSessionCookie(): Promise<string> {
 
 async function fetchPage(url: string): Promise<string> {
   try {
+    // Aggiunto il flag -4 per forzare IPv4 ed evitare blocchi di rete su Railway
     const result = execSync(
       `curl -4 -s -L --http2 --max-time 30 \
       -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" \
@@ -80,12 +81,12 @@ async function fetchPage(url: string): Promise<string> {
     return `ERRORE: ${e.message}`;
   }
 }
+
 function parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
   const $ = cheerio.load(html);
   const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
   const urlsSeen = new Set<string>();
 
-  // Selettore mirato sulle tabelle dei risultati di oggi
   $("table.races-todo tr, table.races-finished tr, .hp-race-item").each((i, el) => {
     const $el = $(el);
     const link = $el.find("a[href^='race/']").first();
@@ -97,8 +98,6 @@ function parseGareFromPCS(html: string): Array<{ nome: string; url: string; gene
 
     const testoRiga = $el.text().toLowerCase();
     
-    // LOGICA DI FILTRO (Pescata da Replit + Fix Prologo)
-    // Accettiamo se: c'è un link, è finita, è un prologo o ha risultati
     const isFinished = testoRiga.includes("finished") || 
                        testoRiga.includes("result") || 
                        testoRiga.includes("prologue") ||
@@ -185,7 +184,9 @@ export const cyclingWorkflowFn = inngest.createFunction(
       const html = await fetchPage(`${PCS_BASE}/races.php?date=today`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
-      // Usa cheerio invece di Gemini per parsare
+      // DEBUG: Vediamo cosa scarica Railway per capire se siamo bloccati
+      console.log("DEBUG PCS - Primi 200 caratteri HTML:", html.substring(0, 200));
+
       const gare = parseGareFromPCS(html);
       
       if (gare.length === 0) {
@@ -225,7 +226,6 @@ export const cyclingWorkflowFn = inngest.createFunction(
           const html = await fetchPage(url);
           if (html.startsWith("ERRORE")) return null;
 
-          // Estrai risultati con Cheerio
           const $ = cheerio.load(html);
           const classificaArrivo: any[] = [];
           
@@ -275,7 +275,7 @@ export const cyclingWorkflowFn = inngest.createFunction(
               .join("\n");
 
             const result = await generateObject({
-              model: google("gemini-2.5-flash"),
+              model: google("gemini-2.0-flash"), // Corretto a 2.0-flash per stabilità Pro
               prompt: `Sei un Redattore Sportivo Senior specializzato in ciclismo per RadioCiclismo.com.
 
 REGOLA D'ORO: NON inventare dati, distacchi, nomi o dichiarazioni. Se un dato non esiste scrivi "informazione non disponibile".
@@ -322,7 +322,7 @@ OUTPUT OBBLIGATORIO:
 
           const articoloEN = await step.run(`genera-en-${gara.nome}`, async () => {
             const result = await generateObject({
-              model: google("gemini-2.5-flash"),
+              model: google("gemini-2.0-flash"),
               prompt: `You are a senior cycling journalist for RadioCiclismo.com.
 Translate and adapt this Italian article to professional English journalism.
 
