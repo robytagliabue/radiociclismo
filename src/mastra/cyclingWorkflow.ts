@@ -81,30 +81,41 @@ async function fetchPage(url: string): Promise<string> {
   }
 }
 
-function parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
+ffunction parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
   const $ = cheerio.load(html);
   const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
+  const urlsSeen = new Set<string>();
 
-  // Selettori comuni per le gare su PCS
-  $("div.item, tr.race, a[href*='/race/']").each((i, el) => {
+  // Selettori per trovare i link alle gare (incluso prologue)
+  $("a[href*='/race/']").each((i, el) => {
     const $el = $(el);
     
-    // Estrai nome
-    const nome = $el.find("a, .title, .name, h3").first().text().trim();
+    // Estrai nome dalla pagina
+    let nome = $el.text().trim();
     if (!nome) return;
 
     // Estrai URL
-    let url = $el.find("a").first().attr("href") || "";
-    if (!url && $el.attr("href")) url = $el.attr("href") || "";
+    let url = $el.attr("href") || "";
+    if (!url || urlsSeen.has(url)) return; // Evita duplicati
     
-    // Estrai stato
-    const statoText = $el.text().toLowerCase();
-    const stato = statoText.includes("finished") || statoText.includes("result") ? "finished" : "unknown";
+    urlsSeen.add(url);
+
+    // Estrai stato dal testo circostante
+    const parentText = $el.parent().text().toLowerCase();
+    const stato = 
+      parentText.includes("finished") || 
+      parentText.includes("result") ||
+      parentText.includes("ended")
+        ? "finished" 
+        : "unknown";
     
     // Estrai genere
-    const genere = statoText.includes("women") ? "women" : "men";
+    const genere = nome.toLowerCase().includes("women") || parentText.includes("women") ? "women" : "men";
 
-    if (nome && url && stato === "finished") {
+    // Accetta gare finite E che contengono "stage" o "prologue"
+    const isStageRace = url.includes("/stage-") || url.includes("/prologue") || url.includes("/prol");
+    
+    if (nome && url && stato === "finished" && isStageRace) {
       gare.push({ nome, url, genere, stato });
     }
   });
