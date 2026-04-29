@@ -61,12 +61,12 @@ export const fciWorkflowFn = inngest.createFunction(
         );
         if (check.data?.articles?.length > 0 || check.data?.length > 0) return;
 
-        // Estrazione testo completo notizia per l'agente
+        // Estrazione testo completo notizia
         const htmlArt = fetchPage(art.url);
         const $art = cheerio.load(htmlArt);
         const corpoTesto = $art("article, .entry-content").text().substring(0, 3000);
 
-        // Recupero Ranking RadioCiclismo per arricchire il prompt
+        // Recupero Ranking RadioCiclismo
         const categoria = art.titolo.toLowerCase().includes("juniores") ? "juniores" : "under23";
         let rankingInfo = "Nessun dato ranking disponibile.";
         try {
@@ -74,22 +74,29 @@ export const fciWorkflowFn = inngest.createFunction(
           rankingInfo = JSON.stringify(rankRes.data);
         } catch (e) {}
 
-        // CHIAMATA ALL'AGENTE MASTRA (Sistemata con generateLegacy e messages)
-        const result = await cyclingAgent.generateLegacy({
-          messages: [
-            {
-              role: "user" as const,
-              content: `Sei l'esperto del vivaio di RadioCiclismo. Rielabora questa notizia italiana: ${art.titolo}.
-              Testo originale: ${corpoTesto}.
-              Contesto Ranking attuale (${categoria}): ${rankingInfo}.
-              Obiettivo: Scrivi un articolo tecnico e incoraggiante per il ciclismo italiano. 
-              Genera un JSON con: titolo, contenuto, excerpt, slug, tags.`
-            }
-          ]
+        // CHIAMATA ALL'AGENTE MASTRA (Metodo .text() per stabilità)
+        const res = await cyclingAgent.text({
+          messages: [`Sei l'esperto del vivaio di RadioCiclismo. Rielabora questa notizia italiana: ${art.titolo}.
+          Testo originale: ${corpoTesto}.
+          Contesto Ranking attuale (${categoria}): ${rankingInfo}.
+          Obiettivo: Scrivi un articolo tecnico e incoraggiante per il ciclismo italiano.
+          RISPONDI ESCLUSIVAMENTE CON UN JSON VALIDO: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`]
         });
 
-        // Fallback per l'estrazione dell'oggetto
-        const articolo = (result.object || result) as any;
+        let articolo;
+        try {
+          // Pulizia del testo da eventuali blocchi di codice markdown
+          const cleanText = res.text.replace(/```json|```/g, "").trim();
+          articolo = JSON.parse(cleanText);
+        } catch (e) {
+          // Fallback se il parsing fallisce
+          articolo = { 
+            titolo: art.titolo, 
+            contenuto: res.text, 
+            slug: art.titolo.toLowerCase().replace(/ /g, "-"),
+            tags: ["ciclismo", "giovani"]
+          };
+        }
 
         // 3. PUBBLICAZIONE (Bozza)
         await axios.post(`${RC_BASE}/api/admin/articles`, {
