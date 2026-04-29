@@ -55,45 +55,40 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     // 3. GENERAZIONE ARTICOLO IT
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
-      // PROVIAMO IL FORMATO PIÙ SEMPLICE: PASSANDO DIRETTAMENTE IL TESTO 
-      // O USANDO LA PROPRIETÀ 'content' SE IL LEGACY LA RICHIEDE COSÌ
-      const res = await cyclingAgent.generateLegacy({
-        messages: [
-          {
-            role: "user" as const,
-            content: `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
-            Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
-            Top 10: ${dati.classifica.slice(0,10).map(r => `${r.pos}. ${r.nome}`).join(", ")}.
-            ${stile.prompt} 
-            Genera un JSON con: titolo, contenuto, excerpt, slug, tags (array).`
-          }
-        ]
+      const res = await cyclingAgent.text({
+        messages: [`Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
+        Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
+        Top 10: ${dati.classifica.slice(0,10).map(r => `${r.pos}. ${r.nome}`).join(", ")}.
+        ${stile.prompt} 
+        RISPONDI ESCLUSIVAMENTE CON UN JSON VALIDO: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`]
       });
       
-      // Se res.object è vuoto, proviamo a vedere se Mastra lo ha messo in res.text o altrove
-      return (res.object || res) as any; 
+      try {
+        const cleanText = res.text.replace(/```json|```/g, "").trim();
+        return JSON.parse(cleanText);
+      } catch (e) {
+        return { titolo: gara.nome, contenuto: res.text, slug: raceSlug, tags: ["ciclismo"] };
+      }
     });
 
     // 4. TRADUZIONE EN
     const articoloEN = await step.run(`gen-en-${raceSlug}`, async () => {
-      const res = await cyclingAgent.generateLegacy({
-        messages: [
-          {
-            role: "user" as const,
-            content: `Translate the following cycling article into professional English:
-            Title: ${articoloIT.titolo}
-            Content: ${articoloIT.contenuto}
-            Keep the technical cycling terminology correct. Return JSON with: titolo, contenuto, excerpt.`
-          }
-        ]
+      const res = await cyclingAgent.text({
+        messages: [`Translate this cycling article to English. Return ONLY JSON: { "titolo": "", "contenuto": "", "excerpt": "" }. 
+        Article: ${JSON.stringify(articoloIT)}`]
       });
-      return (res.object || res) as any;
+      try {
+        const cleanText = res.text.replace(/```json|```/g, "").trim();
+        return JSON.parse(cleanText);
+      } catch (e) {
+        return { titolo: articoloIT.titolo, contenuto: res.text };
+      }
     });
 
     // 5. PUBBLICAZIONE
     const pub = await step.run(`publish-${raceSlug}`, async () => {
-      console.log(`Pubblicazione articolo: ${articoloIT.titolo}`);
-      return { id: "test-id-success", success: true };
+      console.log(`🚀 Articolo generato: ${articoloIT.titolo}`);
+      return { id: "success-id", success: true };
     });
 
     return { status: "success", id: pub.id, race: gara.nome };
