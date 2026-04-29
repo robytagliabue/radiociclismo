@@ -2,14 +2,18 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serve as inngestServe } from "inngest/hono";
 
-// 1. Questi sono fuori in "src", quindi servono i due punti (../)
+// 1. Questi sono FUORI nella cartella superiore (src/)
+// Usiamo "../" per risalire di un livello
 import { inngest } from "../client.js"; 
 import { allInngestFunctions } from "../inngest.js"; 
 
-// 2. Questo è "qui" con server.ts in "src/mastra/", quindi serve un punto solo (./)
+// 2. Questo è DENTRO la stessa cartella (src/mastra/)
+// Usiamo "./" perché il file è nella stessa posizione di server.ts
 import { ensurePublishedArticlesTable, pool } from "./db.js";
 
 const app = new Hono();
+
+// ... resto del codice (Configurazione Inngest e Rotte) ...
 
 // Configurazione Inngest
 const inngestHandler = inngestServe({
