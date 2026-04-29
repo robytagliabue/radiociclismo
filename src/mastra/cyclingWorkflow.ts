@@ -40,26 +40,53 @@ const PCS_BASE = "https://www.procyclingstats.com";
 
 const STILI = [
   {
-    id: "ANALISI_TATTICA",
-    prompt: `Stile ANALISI TATTICA: descrivi come si è sviluppata la gara usando solo i dati forniti. Parla di attacchi, selezione, ritmo. Usa verbi tecnici del ciclismo: scattare, fare il buco, scollinare, rilanciare, andare in fuga. Tono autorevole. Evita aggettivi vuoti.`
+    id: "EPICO_NARRATORE",
+    prompt: `Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta.
+Usa esclusivamente i dati reali presenti nel contesto (classifica, squadra, gara odierna).
+Se il corridore non vince da N giorni e il dato è fornito, citalo con il numero esatto.
+Se è un neoprofessionista, sottolinea la "prima volta" senza aggiungere dettagli inventati.
+VIETATO inventare biografie, infortuni passati, origini familiari o dichiarazioni non verificabili.
+Tono narrativo, empatico, ritmo letterario.
+CLAUSOLA DI SICUREZZA: se non hai dati storici sul corridore, passa automaticamente allo stile CRONISTA FLASH.`
   },
   {
-    id: "LATO_UMANO",
-    prompt: `Stile LATO UMANO: costruisci una narrazione sul vincitore basata SOLO sui dati forniti (nome, squadra, classifica). Non inventare dichiarazioni, non inventare retroscena. Tono empatico e narrativo. Se non hai dettagli biografici, concentrati sul significato sportivo del risultato.`
-  },
-  {
-    id: "BUSINESS_MANAGEMENT",
-    prompt: `Stile BUSINESS & MANAGEMENT: analizza il risultato dal punto di vista della squadra vincitrice e del calendario stagionale, usando SOLO i dati forniti. Tono professionale e giornalistico. Non inventare strategie o dichiarazioni.`
+    id: "SPECIALISTA_TECNICO",
+    prompt: `Stile LO SPECIALISTA TECNICO — Focus: il "come" si è vinta la gara.
+Analizza i momenti chiave della gara: quando è scattato l'attacco, come si è formata la selezione, gestione del ritmo in salita.
+Usa verbi tecnici: scollinare, rilanciare, fare il buco, andare in fuga, gestire il ventaglio.
+Basati SOLO sui dati di classifica e percorso forniti. Non inventare pendenze o tempi di scalata se non presenti.
+Tono autorevole e tecnico. Zero aggettivi vuoti.`
   },
   {
     id: "FLASH_NEWS",
-    prompt: `Stile FLASH NEWS: frasi brevi e dirette. Inizia con il fatto principale (chi ha vinto, dove, quando). Poi classifica sintetica. Poi un dato tecnico. Nessuna speculazione, nessun dettaglio inventato.`
+    prompt: `Stile IL CRONISTA FLASH — Focus: immediatezza e fatti nudi.
+Inizia con il fatto principale: chi ha vinto, gara, anno.
+Poi classifica Top 10 sintetica con distacchi se disponibili.
+Poi classifica generale aggiornata se disponibile.
+Zero commenti, zero speculazioni, zero dettagli non forniti.
+Frasi brevi. Perfetto per social e lettura rapida.`
   },
   {
-    id: "TECH_INSIDER",
-    prompt: `Stile TECH & INSIDER: analizza la gara dal punto di vista tecnico e statistico usando SOLO i dati forniti. Parla di distanza, caratteristiche del percorso se disponibili, distacchi in classifica. Tono specialistico. Non inventare dettagli tecnici.`
+    id: "TECH_GURU",
+    prompt: `Stile IL TECH-GURU — Focus: materiali e performance atletica.
+Cita solo brand di bici e componenti effettivamente usati dal team vincitore se presenti nei dati.
+Se disponibili dati su distacchi, tempi o record storici, usali per fare confronti concreti.
+CLAUSOLA DI SICUREZZA: se non hai dati tecnici su bici o wattaggio, passa automaticamente allo stile SPECIALISTA TECNICO limitandoti alla dinamica della gara odierna.
+Tono scientifico, curioso, specialistico.`
+  },
+  {
+    id: "SPECIALISTA_TECNICO_2",
+    prompt: `Stile LO SPECIALISTA TECNICO (variante) — Focus: tattica di squadra e dinamiche di gara.
+Analizza come la squadra vincitrice ha controllato la corsa, chi ha fatto il lavoro di squadra, come si è sviluppato lo sprint o l'attacco decisivo.
+Basati esclusivamente sui dati forniti (classifica, squadre, distacchi).
+Tono autorevole. Verbi tecnici del ciclismo. Nessun dettaglio inventato.`
   },
 ];
+
+// NOTA: lo stile INSIDER DI SQUADRA (sponsor/management) è riservato ad articoli
+// dedicati ai team (presentazioni, cambi sponsor) — NON viene usato per cronache di gara.
+
+// Contatore globale per rotazione stili
 
 const STRUTTURE = [
   `Struttura: 1.Apertura con il fatto principale (vincitore + gara) 2.Top 10 commentato 3.Analisi nello stile scelto 4.Conclusione`,
@@ -330,8 +357,10 @@ REGOLE ASSOLUTE — NON DEROGABILI
 ════════════════════════════════
 1. USA ESCLUSIVAMENTE i dati forniti qui sotto. Non aggiungere fatti, citazioni, retroscena o dettagli non presenti.
 2. Se un dato manca (es. distacco, nazionalità), scrivi "–" o ometti il campo. MAI inventare.
-3. Il vincitore è sempre il corridore in POSIZIONE 1 della classifica fornita.
+3. Il vincitore è sempre il corridore in POSIZIONE 1 della classifica fornita. Usa il suo nome esatto.
 4. Non menzionare fonti esterne, sponsor o dichiarazioni che non compaiono nei dati.
+5. FALLBACK AUTOMATICO: se lo stile richiede dati storici o tecnici (EPICO_NARRATORE, TECH_GURU) e questi non sono presenti nella classifica fornita, scrivi l'articolo in stile CRONISTA FLASH. Meglio un articolo corto e vero che uno lungo e inventato.
+6. Il titolo DEVE contenere: nome della gara + nome del vincitore (dalla posizione 1). MAI usare placeholder come [VINCITORE].
 
 ════════════════════════════════
 DATI REALI DELLA GARA
