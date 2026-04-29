@@ -1,14 +1,13 @@
-import { inngest } from "./client.js";
-import { cyclingDispatchFn, cyclingProcessRaceFn } from "./cycling-pcs";
-import { fciWorkflowFn } from "./cycling-fci";
+import { inngest } from "../client.js"; // Esce in src per prendere il client
+import { cyclingDispatchFn, cyclingProcessRaceFn } from "./cycling-pcs.js"; // ./ perché sono in mastra
+import { fciWorkflowFn } from "./cycling-fci.js"; // ./ perché sono in mastra
 
-// Esportiamo l'array delle funzioni per il serve() di Next.js/Express
 export const allInngestFunctions = [
   cyclingDispatchFn,
-  cyclingProcessRaceFn, // Questo gestisce le gare internazionali
-  fciWorkflowFn         // Questo gestisce FCI + Bici.pro
+  cyclingProcessRaceFn,
+  fciWorkflowFn,
+  masterCron // Ricordati di aggiungere masterCron qui se vuoi che sia registrato!
 ];
-
 // CRON UNICO: Evitiamo sovrapposizioni per non esaurire i 5 slot di concurrency
 export const masterCron = inngest.createFunction(
   { id: "master-cron-radiociclismo", name: "RadioCiclismo Master Cron" },
