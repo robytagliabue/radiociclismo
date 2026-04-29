@@ -14,13 +14,12 @@ const STILI = [
   { name: "Cronaca", prompt: "Fornisci un resoconto asciutto e preciso dei fatti." }
 ];
 
-// --- 1. DISPATCHER: Trova le gare (Deve essere ESPORTATA) ---
+// --- 1. DISPATCHER: Trova le gare ---
 export const cyclingDispatchFn = inngest.createFunction(
   { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
   { event: "cycling/generate.article" },
   async ({ step }) => {
-    // Qui andrebbe la tua logica di scraping iniziale per trovare la lista gare
-    // Esempio semplificato:
+    // Esempio semplificato: qui andrebbe la tua logica di scraping
     const gare = [{ nome: "Esempio Gara", id: "123" }]; 
 
     for (const [index, gara] of gare.entries()) {
@@ -33,7 +32,7 @@ export const cyclingDispatchFn = inngest.createFunction(
   }
 );
 
-// --- 2. WORKER: Elaborazione Gara (Deve essere ESPORTATA) ---
+// --- 2. WORKER: Elaborazione Gara ---
 export const cyclingProcessRaceFn = inngest.createFunction(
   { 
     id: "cycling-worker", 
@@ -45,7 +44,7 @@ export const cyclingProcessRaceFn = inngest.createFunction(
     const { gara, index } = event.data;
     const raceSlug = slugify(gara.nome);
 
-    // Mock dei dati (Sostituisci con il tuo scraping reale)
+    // Dati fittizi per il test (da sostituire con scraping reale)
     const dati = {
       isComplete: true,
       classifica: [{ pos: 1, nome: "Pogačar", team: "UAE" }]
@@ -55,9 +54,9 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     const stile = STILI[index % STILI.length];
 
-    // 3. GENERAZIONE ARTICOLO IT CON AGENTE MASTRA
+    // 3. GENERAZIONE ARTICOLO IT CON AGENTE MASTRA (Metodo Legacy per compatibilità Gemini)
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
-      const res = await cyclingAgent.generate({
+      const res = await cyclingAgent.generateLegacy({
         prompt: `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
         Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
         Top 10: ${dati.classifica.slice(0,10).map(r => `${r.pos}. ${r.nome}`).join(", ")}.
@@ -65,13 +64,13 @@ export const cyclingProcessRaceFn = inngest.createFunction(
         Genera un JSON con: titolo, contenuto, excerpt, slug, tags (array).`,
       });
       
-      // Mastra restituisce l'oggetto in .object se hai definito lo schema nell'agente
+      // Con generateLegacy, l'oggetto validato si trova solitamente in res.object
       return res.object as any; 
     });
 
-    // 4. TRADUZIONE EN CON AGENTE MASTRA
+    // 4. TRADUZIONE EN CON AGENTE MASTRA (Metodo Legacy)
     const articoloEN = await step.run(`gen-en-${raceSlug}`, async () => {
-      const res = await cyclingAgent.generate({
+      const res = await cyclingAgent.generateLegacy({
         prompt: `Translate the following cycling article to professional English:
         Title: ${articoloIT.titolo}
         Content: ${articoloIT.contenuto}
@@ -80,10 +79,10 @@ export const cyclingProcessRaceFn = inngest.createFunction(
       return res.object as any;
     });
 
-    // 5. PUBBLICAZIONE (Invariata)
+    // 5. PUBBLICAZIONE
     const pub = await step.run(`publish-${raceSlug}`, async () => {
-      // Nota: Qui puoi aggiungere la logica axios per il tuo backend
-      return { id: "mock-id-123", success: true };
+      // Inserisci qui la tua chiamata axios.post reale quando sei pronto
+      return { id: "test-id", success: true };
     });
 
     return { status: "success", id: pub.id, race: gara.nome };
