@@ -46,25 +46,34 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     // 3. GENERAZIONE ARTICOLO IT
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
-      // Torniamo a .generate() che è il metodo principale di Mastra
-      const res = await cyclingAgent.generate(
-        `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
-        Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
-        ${stile.prompt} 
-        Rispondi in formato JSON con i campi: titolo, contenuto, excerpt, slug, tags.`
-      );
+      // OBBLIGATORIO: generateLegacy + messages con role: "user"
+      const res = await cyclingAgent.generateLegacy({
+        messages: [
+          {
+            role: "user",
+            content: `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
+            Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
+            ${stile.prompt} 
+            Rispondi in formato JSON con i campi: titolo, contenuto, excerpt, slug, tags.`
+          }
+        ]
+      });
       
-      // In Mastra .generate() restituisce l'oggetto validato in .object
-      // Se non lo trovi lì, prova a vedere se l'agente è configurato per l'output strutturato
+      // Estraiamo l'oggetto (Mastra Legacy lo mette in .object o restituisce l'output strutturato)
       return (res as any).object || res;
     });
 
     // 4. TRADUZIONE EN
     const articoloEN = await step.run(`gen-en-${raceSlug}`, async () => {
-      const res = await cyclingAgent.generate(
-        `Translate this article into English: ${JSON.stringify(articoloIT)}. 
-        Return JSON with: titolo, contenuto, excerpt.`
-      );
+      const res = await cyclingAgent.generateLegacy({
+        messages: [
+          {
+            role: "user",
+            content: `Translate this article into English: ${JSON.stringify(articoloIT)}. 
+            Return JSON with: titolo, contenuto, excerpt.`
+          }
+        ]
+      });
       return (res as any).object || res;
     });
 
