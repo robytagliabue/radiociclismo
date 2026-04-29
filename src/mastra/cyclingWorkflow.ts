@@ -218,8 +218,10 @@ export const cyclingWorkflowFn = inngest.createFunction(
     });
 
     const gareOggi = await step.run("scraping-pcs-gare", async () => {
-      const oggi = new Date().toISOString().split("T")[0]; // "2026-04-28"
-      const html = await fetchPage(`${PCS_BASE}/races.php?date=${oggi}&circuit=&class=&filter=Filter`);
+      // PCS pubblica i risultati del giorno precedente — usiamo ieri
+      const ieri = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      console.log("[PCS] Cercando risultati di ieri:", ieri);
+      const html = await fetchPage(`${PCS_BASE}/races.php?date=${ieri}&circuit=&class=&filter=Filter`);
       if (html.startsWith("ERRORE")) throw new Error(html);
 
       console.log("[PCS] Lunghezza HTML:", html.length);
@@ -269,10 +271,12 @@ export const cyclingWorkflowFn = inngest.createFunction(
         }
 
         const risultatiPCS = await step.run(`scraping-risultati-${gara.nome}`, async () => {
-          // Per gare a tappe prova prima /result, poi fallback alla pagina base
           const baseUrl = `${PCS_BASE}${gara.url}`;
+
+          // Prova URL risultati in ordine di priorità
           const urlsToTry = [
-            baseUrl.endsWith("/result") ? baseUrl : `${baseUrl}/result`,
+            `${baseUrl}/result`,      // tappa singola o gara in linea
+            `${baseUrl}/results`,
             baseUrl,
           ];
 
@@ -283,6 +287,7 @@ export const cyclingWorkflowFn = inngest.createFunction(
             if (!h.startsWith("ERRORE") && h.length > 1000) {
               html = h;
               url = u;
+              console.log("[RISULTATI] URL funzionante:", u);
               break;
             }
           }
@@ -353,7 +358,38 @@ export const cyclingWorkflowFn = inngest.createFunction(
             return null;
           }
 
-          return { classificaArrivo, percorso: "", distanzaKm: 0, dislivelloM: 0 };
+          // Prova a prendere anche la General Classification
+          const gcArrivo: any[] = [];
+          const gcUrls = [
+            `${baseUrl}/gc`,
+            `${baseUrl}/general-classification`,
+            `${PCS_BASE}${gara.url.replace(/\/stage-\d+.*/, "")}/gc`,
+          ];
+
+          for (const gcUrl of gcUrls) {
+            const gcHtml = await fetchPage(gcUrl);
+            if (gcHtml.startsWith("ERRORE") || gcHtml.length < 1000) continue;
+
+            const $gc = cheerio.load(gcHtml);
+            $gc("table tbody tr").each((i, el) => {
+              const $el = $gc(el);
+              const nome = $el.find("td:nth-child(2), .rider-name").text().trim();
+              const squadra = $el.find("td:nth-child(3), .team-name").text().trim();
+              const tempo = $el.find("td:nth-child(4), .time").text().trim();
+              if (!nome) return;
+              const nomeLower = nome.toLowerCase();
+              const isInvalido = PAROLE_NON_VALIDE.some(p => nomeLower.includes(p));
+              if (isInvalido || nome.length < 4) return;
+              gcArrivo.push({ posizione: gcArrivo.length + 1, nome, squadra, tempo, distacco: "" });
+            });
+
+            if (gcArrivo.length >= 5) {
+              console.log("[GC] Classifica generale trovata:", gcArrivo.length, "corridori — URL:", gcUrl);
+              break;
+            }
+          }
+
+          return { classificaArrivo, gcArrivo, percorso: "", distanzaKm: 0, dislivelloM: 0 };
         });
 
         if (!risultatiPCS) {
@@ -370,10 +406,17 @@ export const cyclingWorkflowFn = inngest.createFunction(
         if (risultatiPCS.classificaArrivo.length > 0) {
           const articoloIT = await step.run(`genera-it-${gara.nome}`, async () => {
             const vincitore = risultatiPCS.classificaArrivo[0];
-            const top10 = risultatiPCS.classificaArrivo
+            const top10Tappa = risultatiPCS.classificaArrivo
               .slice(0, 10)
-              .map(r => `${r.posizione}. ${r.nome} (${r.squadra})${r.distacco ? " +" + r.distacco : " [vincitore]"}`)
+              .map(r => `${r.posizione}. ${r.nome} (${r.squadra})${r.distacco ? " +" + r.distacco : " [vincitore tappa]"}`)
               .join("\n");
+
+            const hasGC = risultatiPCS.gcArrivo && risultatiPCS.gcArrivo.length >= 5;
+            const top10GC = hasGC
+              ? risultatiPCS.gcArrivo.slice(0, 10)
+                  .map((r: any) => `${r.posizione}. ${r.nome} (${r.squadra})${r.distacco ? " +" + r.distacco : " [leader GC]"}`)
+                  .join("\n")
+              : null;
 
             const result = await generateObject({
               model: google("gemini-2.5-flash-lite"),
@@ -397,10 +440,11 @@ DATI REALI DELLA GARA
 Gara: ${gara.nome}
 Anno: ${new Date().getFullYear()}
 Categoria: ${gara.genere === "women" ? "Ciclismo Femminile" : "Ciclismo Maschile"}
-Vincitore: ${vincitore.nome} (${vincitore.squadra})
+Vincitore di tappa: ${vincitore.nome} (${vincitore.squadra})
 
-Classifica finale Top 10:
-${top10}
+Classifica di tappa Top 10:
+${top10Tappa}
+${top10GC ? `\nClassifica Generale (GC) aggiornata Top 10:\n${top10GC}\nLeader GC: ${risultatiPCS.gcArrivo[0].nome} (${risultatiPCS.gcArrivo[0].squadra})` : "\n(Classifica generale non disponibile per questa tappa)"}
 
 ════════════════════════════════
 STILE EDITORIALE DA APPLICARE
