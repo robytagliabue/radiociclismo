@@ -48,12 +48,17 @@ export const fciWorkflowFn = inngest.createFunction(
         const $art = cheerio.load(htmlArt);
         const corpoTesto = $art("article, .entry-content").text().substring(0, 3000);
 
-        // Usiamo .generate() passandogli direttamente la stringa
-        const res = await cyclingAgent.generate(
-          `Sei l'esperto di RadioCiclismo. Rielabora questa notizia: ${art.titolo}. 
-          Testo: ${corpoTesto}. 
-          Rispondi in JSON con: titolo, contenuto, excerpt, slug, tags.`
-        );
+        // OBBLIGATORIO: generateLegacy + messages con role: "user"
+        const res = await cyclingAgent.generateLegacy({
+          messages: [
+            {
+              role: "user",
+              content: `Sei l'esperto di RadioCiclismo. Rielabora questa notizia: ${art.titolo}. 
+              Testo: ${corpoTesto}. 
+              Rispondi in JSON con: titolo, contenuto, excerpt, slug, tags.`
+            }
+          ]
+        });
 
         const articolo = (res as any).object || res;
 
