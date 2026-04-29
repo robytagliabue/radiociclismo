@@ -1,7 +1,5 @@
-import { inngest } from "./inngest.js";
-import { google } from "@ai-sdk/google";
-import { generateObject } from "ai";
-import { z } from "zod";
+import { inngest, FCI_EVENT } from "./client.js";
+import { cyclingAgent } from "./cyclingAgent.js"; // Importiamo l'Agente Mastra
 import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
@@ -9,10 +7,6 @@ import * as cheerio from "cheerio";
 // Configurazione basi
 const RC_BASE = "https://radiociclismo.com";
 const BIPRO_URL = "https://bici.pro/news/giovani/";
-const FCI_STRADA_URL = "https://www.federciclismo.it/it/section/strada/00965045-812e-4b68-9a99-9689945a05b1/";
-
-// Categorie target
-const CATEGORIE_ARTICOLO = ["allievi", "juniores", "under23", "elite"];
 
 // --- UTILS ---
 
@@ -28,97 +22,78 @@ async function getSessionCookie(): Promise<string> {
 
 function fetchPage(url: string): string {
   try {
-    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36" --compressed "${url}"`;
+    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0" --compressed "${url}"`;
     return execSync(cmd, { maxBuffer: 10 * 1024 * 1024 }).toString();
-  } catch (e: any) { return `ERRORE: ${e.message}`; }
+  } catch (e: any) { return ""; }
 }
 
-function mapCategoriaToRCRanking(cat: string): string {
-  const c = cat.toLowerCase();
-  if (c.includes("allievi")) return c.includes("donne") ? "donne_allieve" : "allievi";
-  if (c.includes("juniores")) return c.includes("donne") ? "donne_juniores" : "juniores";
-  return c.includes("donne") ? "donne_under23_elite" : "under23_elite";
-}
-
-// --- LOGICA DI WORKFLOW ---
+// --- WORKFLOW NAZIONALE ---
 
 export const fciWorkflowFn = inngest.createFunction(
   { id: "fci-workflow", name: "RadioCiclismo — Nazionali & News", concurrency: 2 },
-  { event: "cycling/generate.fci.article" },
+  { event: FCI_EVENT },
   async ({ step }) => {
-    const report: string[] = [];
     const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
 
-    // 1. PIPELINE RISULTATI DAL DATABASE (Gare FCI Nazionali)
-    const gareOggi = await step.run("fetch-db-races", async () => {
-      const oggi = new Date().toISOString().split("T")[0];
-      // Nota: Qui devi assicurarti che il tuo db sia accessibile dal worker
-      // const res = await db.query("SELECT ... WHERE DATE(start_date) = $1", [oggi]);
-      // return res.rows;
-      return []; // Placeholder: sostituisci con la tua query reale
-    });
-
-    // 2. PIPELINE NEWS (Scraping Bici.pro e FCI)
-    const newsArticoli = await step.run("scrape-news-sites", async () => {
+    // 1. SCRAPING NEWS (Bici.pro / Giovani)
+    const newsArticoli = await step.run("scrape-bicipro", async () => {
+      const html = fetchPage(BIPRO_URL);
+      const $ = cheerio.load(html);
       const news: any[] = [];
-      const oggi = new Date().toLocaleDateString('it-IT'); // Formato tipico siti IT
 
-      // Scraping Bici.pro
-      const htmlBP = fetchPage(BIPRO_URL);
-      const $bp = cheerio.load(htmlBP);
-      $bp("article").each((_, el) => {
-          const titolo = $bp(el).find("h2").text().trim();
-          const url = $bp(el).find("a").attr("href");
-          if (titolo && url) news.push({ titolo, url, fonte: "Bici.pro" });
+      $("article").each((i, el) => {
+        const titolo = $(el).find("h2").text().trim();
+        const url = $(el).find("a").attr("href");
+        if (titolo && url && i < 3) {
+          news.push({ titolo, url, fonte: "Bici.pro" });
+        }
       });
-
-      return news.slice(0, 5); // Limitiamo per il piano free
+      return news;
     });
 
-    // 3. GENERAZIONE ARTICOLI PER NEWS TROVATE
+    // 2. ELABORAZIONE NEWS CON AGENTE MASTRA
     for (const art of newsArticoli) {
       await step.run(`process-news-${art.titolo.substring(0,10)}`, async () => {
-        // Check duplicati
-        const check = await axios.get(`${RC_BASE}/api/admin/articles?search=${encodeURIComponent(art.titolo.substring(0,15))}`, { headers: { Cookie: sessionCookie } });
-        if (check.data?.length > 0) return;
+        
+        // Controllo duplicati rapido
+        const check = await axios.get(`${RC_BASE}/api/admin/articles?search=${encodeURIComponent(art.titolo.substring(0,15))}`, 
+          { headers: { Cookie: sessionCookie } }
+        );
+        if (check.data?.articles?.length > 0 || check.data?.length > 0) return;
 
-        // Estrazione testo completo notizia
+        // Estrazione testo completo notizia per l'agente
         const htmlArt = fetchPage(art.url);
         const $art = cheerio.load(htmlArt);
-        const corpoTesto = $("article, .entry-content").text().substring(0, 3000);
+        const corpoTesto = $art("article, .entry-content").text().substring(0, 3000);
 
-        // Generazione con AI arricchita da RadioCiclismo Ranking
+        // Recupero Ranking RadioCiclismo per arricchire il prompt
         const categoria = art.titolo.toLowerCase().includes("juniores") ? "juniores" : "under23";
-        const catRC = mapCategoriaToRCRanking(categoria);
-
-        // Recupero Ranking RC per contesto
-        let rankingContesto = "";
+        let rankingInfo = "Nessun dato ranking disponibile.";
         try {
-          const rankRes = await axios.get(`${RC_BASE}/api/athletes-ranking?category=${catRC}&limit=10`);
-          rankingContesto = rankRes.data.map((a: any, i: number) => `${i+1}. ${a.name}`).join(", ");
+          const rankRes = await axios.get(`${RC_BASE}/api/athletes-ranking?category=${categoria}&limit=5`);
+          rankingInfo = JSON.stringify(rankRes.data);
         } catch (e) {}
 
-        const result = await generateObject({
-          model: google("gemini-1.5-flash"),
-          prompt: `Sei l'esperto di ciclismo giovanile di RadioCiclismo. Rielabora questa notizia: ${art.titolo}. 
-          Testo originale: ${corpoTesto}. 
-          Contesto Ranking RadioCiclismo attuale (${categoria}): ${rankingContesto}.
-          Se qualcuno dei nomi nel testo è nel ranking, evidenzialo. 
-          Link obbligatorio: https://radiociclismo.com/giovani.
-          Stile: Diretto, tecnico, focalizzato sul futuro del ciclismo italiano.`,
-          schema: z.object({
-            titolo: z.string(),
-            contenuto: z.string(),
-            slug: z.string(),
-            tags: z.array(z.string())
-          })
+        // CHIAMATA ALL'AGENTE MASTRA
+        const result = await cyclingAgent.generate({
+          prompt: `Sei l'esperto del vivaio di RadioCiclismo. Rielabora questa notizia italiana: ${art.titolo}.
+          Testo originale: ${corpoTesto}.
+          Contesto Ranking attuale (${categoria}): ${rankingInfo}.
+          Usa i tuoi strumenti per verificare se abbiamo già parlato di questi atleti.
+          Obiettivo: Scrivi un articolo tecnico e incoraggiante per il ciclismo italiano.`,
         });
 
-        // Pubblicazione
+        const articolo = result.object;
+
+        // 3. PUBBLICAZIONE (Bozza)
         await axios.post(`${RC_BASE}/api/admin/articles`, {
-          ...result.object,
+          slug: articolo.slug || art.titolo.toLowerCase().replace(/ /g, "-"),
+          title: articolo.titolo,
+          content: articolo.contenuto,
+          excerpt: articolo.excerpt || "",
           author: "Redazione Giovani AI",
-          published: false
+          published: false,
+          hashtags: articolo.tags || ["ciclismo", "giovani", "italia"]
         }, { headers: { Cookie: sessionCookie } });
       });
     }
