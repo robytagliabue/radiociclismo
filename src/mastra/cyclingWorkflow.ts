@@ -276,18 +276,19 @@ export const cyclingWorkflowFn = inngest.createFunction(
           const $ = cheerio.load(html);
           const classificaArrivo: any[] = [];
 
-          // DEBUG: vediamo la struttura reale della pagina risultati PCS
+          // DEBUG risultati PCS
           console.log("[RISULTATI] URL:", url);
           console.log("[RISULTATI] HTML lunghezza:", html.length);
+          console.log("[RISULTATI] Cloudflare:", html.includes("Just a moment"));
+          console.log("[RISULTATI] HTML 4000-6000:", html.substring(4000, 6000));
           console.log("[RISULTATI] Tabelle trovate:", $("table").length);
           $("table").each((i, el) => {
             const cls = $(el).attr("class") || "";
             const righe = $(el).find("tr").length;
             console.log(`[RISULTATI] Tabella ${i} class="${cls}" righe=${righe}`);
             if (righe > 2) {
-              // Stampa le prime 2 righe di ogni tabella con più di 2 righe
-              $(el).find("tr").slice(0, 2).each((j, tr) => {
-                console.log(`[RISULTATI]   Riga ${j}:`, $(tr).text().replace(/\s+/g, " ").trim().substring(0, 150));
+              $(el).find("tr").slice(0, 3).each((j, tr) => {
+                console.log(`[RISULTATI]   Riga ${j}:`, $(tr).text().replace(/\s+/g, " ").trim().substring(0, 200));
               });
             }
           });
