@@ -292,22 +292,49 @@ export const cyclingWorkflowFn = inngest.createFunction(
             }
           });
 
+          // Parole non valide — giorni settimana, stage, numeri, ecc.
+          const PAROLE_NON_VALIDE = [
+            "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+            "stage","tappa","prologue","prologo","general","gc","dnf","dns","dsq",
+            "classification","standings","overall","risultati","classifica"
+          ];
+
           $("table tbody tr, div.result-row").each((i, el) => {
             const $el = $(el);
-            const posizione = i + 1;
             const nome = $el.find("td:nth-child(2), .rider-name").text().trim();
             const squadra = $el.find("td:nth-child(3), .team-name").text().trim();
             const tempo = $el.find("td:nth-child(4), .time").text().trim();
 
-            if (nome) {
-              classificaArrivo.push({ posizione, nome, squadra, tempo, distacco: "" });
+            if (!nome) return;
+
+            const nomeLower = nome.toLowerCase();
+            const isInvalido = PAROLE_NON_VALIDE.some(p => nomeLower.includes(p));
+            const isSoloNumero = /^\d+$/.test(nome);
+            const isTroppoCorto = nome.replace(/\s/g, "").length < 4;
+
+            if (isInvalido || isSoloNumero || isTroppoCorto) {
+              console.log(`[RISULTATI] ⚠️ Scartato: "${nome}"`);
+              return;
             }
+
+            classificaArrivo.push({
+              posizione: classificaArrivo.length + 1,
+              nome,
+              squadra,
+              tempo,
+              distacco: ""
+            });
           });
 
-          console.log("[RISULTATI] Corridori estratti:", classificaArrivo.length);
+          console.log("[RISULTATI] Corridori validi:", classificaArrivo.length);
           if (classificaArrivo.length > 0) {
-            console.log("[RISULTATI] Primo:", JSON.stringify(classificaArrivo[0]));
-            console.log("[RISULTATI] Secondo:", JSON.stringify(classificaArrivo[1]));
+            console.log("[RISULTATI] Top 3:", classificaArrivo.slice(0, 3).map(r => r.nome).join(", "));
+          }
+
+          // Validazione minima: meno di 5 corridori = gara non conclusa
+          if (classificaArrivo.length < 5) {
+            console.log(`[RISULTATI] ⛔ Solo ${classificaArrivo.length} corridori validi — gara non conclusa, skip`);
+            return null;
           }
 
           return { classificaArrivo, percorso: "", distanzaKm: 0, dislivelloM: 0 };
@@ -345,6 +372,8 @@ REGOLE ASSOLUTE — NON DEROGABILI
 4. Non menzionare fonti esterne, sponsor o dichiarazioni che non compaiono nei dati.
 5. FALLBACK AUTOMATICO: se lo stile richiede dati storici o tecnici (EPICO_NARRATORE, TECH_GURU) e questi non sono presenti nella classifica fornita, scrivi l'articolo in stile CRONISTA FLASH. Meglio un articolo corto e vero che uno lungo e inventato.
 6. Il titolo DEVE contenere: nome della gara + nome del vincitore (dalla posizione 1). MAI usare placeholder come [VINCITORE].
+7. VIETATE le frasi di scusa o mancanza dati: "Non sono stati forniti dati", "Informazione non disponibile", "In base ai dati disponibili". Se un dato non c'è, ometti quel punto — non commentarlo.
+8. Se la classifica fornita ha meno di 5 corridori con nomi reali, scrivi SOLO uno stile FLASH NEWS brevissimo senza inventare nulla.
 
 ════════════════════════════════
 DATI REALI DELLA GARA
@@ -391,49 +420,74 @@ Tags: massimo 3, specifici (nome gara, nome vincitore, squadra).`,
             const result = await generateObject({
               model: google("gemini-2.5-flash-lite"),
               prompt: `You are a senior cycling journalist for RadioCiclismo.com.
-Translate and adapt this Italian article to professional English journalism.
+Translate this Italian article to professional English journalism.
+
+ABSOLUTE RULES:
+1. Translate the ENTIRE content word by word. Do NOT summarize, shorten, or omit any sentence.
+2. Keep ALL facts, names, teams, and numbers identical to the Italian version.
+3. Do NOT invent anything not present in the Italian text.
+4. FORBIDDEN phrases: "No data was provided", "Information not available", "Based on available data", "I was not given". If a fact is in the Italian, translate it. If it is not in the Italian, do not add it.
+5. The translated article must be the same length as the Italian original.
 
 Italian title: ${articoloIT.titolo}
-Italian content: ${articoloIT.contenuto}
-
-DO NOT invent anything. Keep all facts identical.`,
+Italian content: ${articoloIT.contenuto}`,
               schema: z.object({
-                titolo: z.string(),
-                excerpt: z.string(),
-                contenuto: z.string(),
+                titolo: z.string().min(10),
+                excerpt: z.string().min(50),
+                contenuto: z.string().min(200),
               }),
             });
+
+            // Validazione: se EN è troppo corto rispetto a IT, usa IT come fallback
+            if (result.object.contenuto.length < articoloIT.contenuto.length * 0.7) {
+              console.log("[EN] ⚠️ Traduzione troppo corta — uso fallback IT");
+              return {
+                titolo: result.object.titolo || articoloIT.titolo,
+                excerpt: result.object.excerpt || articoloIT.excerpt,
+                contenuto: result.object.contenuto.length > 100 ? result.object.contenuto : articoloIT.contenuto,
+              };
+            }
+
             return result.object;
           });
 
           const pubblicazione = await step.run(`pubblica-${gara.nome}`, async () => {
+            // 1. Validazione pre-invio
+            if (!articoloIT.titolo || !articoloIT.contenuto || !articoloIT.slug) {
+              throw new Error(`Dati articolo incompleti per ${gara.nome} — AI ha fallito la generazione`);
+            }
+
             const body = {
-              slug: articoloIT.slug,
+              slug: articoloIT.slug.toLowerCase().trim(),
               title: articoloIT.titolo,
               excerpt: articoloIT.excerpt,
               content: `${articoloIT.contenuto}\n\n${articoloIT.dettaglioExtra}`,
-              title_en: articoloEN.titolo,
-              excerpt_en: articoloEN.excerpt,
-              content_en: articoloEN.contenuto,
+              titleEn: articoloEN.titolo || articoloIT.titolo,
+              excerptEn: articoloEN.excerpt || articoloIT.excerpt,
+              contentEn: articoloEN.contenuto || articoloIT.contenuto,
               author: "AI Agent",
-              publish_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-              images: [],
-              hashtags: articoloIT.tags,
-              is_published: false,
+              publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              hashtags: articoloIT.tags || [],
+              published: false,
             };
-            console.log("[PUBBLICA] Body inviato:", JSON.stringify(body, null, 2));
+
+            console.log("[PUBBLICA] Slug:", body.slug);
+            console.log("[PUBBLICA] Titolo:", body.title);
+            console.log("[PUBBLICA] Lunghezza content IT:", body.content.length);
+            console.log("[PUBBLICA] Lunghezza content EN:", body.contentEn.length);
+
             try {
               const res = await axios.post(
                 `${RC_BASE}/api/admin/articles`,
                 body,
                 { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
               );
-              console.log("[PUBBLICA] Risposta:", res.status, JSON.stringify(res.data));
-              return { id: res.data?.id, success: true };
+              console.log("[PUBBLICA] ✅ ID:", res.data?.id || res.data?._id);
+              return { id: res.data?.id || res.data?._id || "SUCCESS", success: true };
             } catch (err: any) {
-              console.error("[PUBBLICA] Errore status:", err.response?.status);
-              console.error("[PUBBLICA] Errore body:", JSON.stringify(err.response?.data));
-              throw err;
+              console.error("[PUBBLICA] ❌ Status:", err.response?.status);
+              console.error("[PUBBLICA] ❌ Errore RC:", JSON.stringify(err.response?.data));
+              throw new Error(`Server RC ha risposto ${err.response?.status}: ${JSON.stringify(err.response?.data)}`);
             }
           });
 
