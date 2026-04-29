@@ -3,54 +3,98 @@ import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 import axios from "axios";
+import FormData from "form-data";
+import { execSync } from "child_process";
+import * as cheerio from "cheerio";
 import pg from "pg";
 
 const { Pool } = pg;
 const db = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const RC_BASE = "https://radiociclismo.com";
-
-// ─── Categorie FCI che generano articoli ──────────────────────────────────────
-const CATEGORIE_ARTICOLO = ["allievi", "juniores", "under23", "elite"];
-
-// ─── Mapping categoria gara → parametro API ranking RC ───────────────────────
-function mapCategoriaToRCRanking(cat: string): string {
-  const c = (cat || "").toLowerCase();
-  if (c.includes("allievi")) return c.includes("donne") ? "donne_allieve" : "allievi";
-  if (c.includes("juniores") || c.includes("junior")) return c.includes("donne") ? "donne_juniores" : "juniores";
-  if (c.includes("under23") || c.includes("u23")) return c.includes("donne") ? "donne_under23_elite" : "under23_elite";
-  if (c.includes("elite")) return c.includes("donne") ? "donne_under23_elite" : "under23_elite";
-  return "under23_elite";
+// Helper DB: check se articolo già pubblicato
+async function isAlreadyPublished(raceName: string): Promise<boolean> {
+  const res = await db.query(
+    "SELECT id FROM published_articles WHERE race_name = $1 LIMIT 1",
+    [raceName]
+  );
+  return res.rowCount! > 0;
 }
 
-// ─── Tipi ─────────────────────────────────────────────────────────────────────
-interface RaceRanking {
-  position: number;
-  name: string;
-  team: string;
-  category: string;
-  status: "classified" | "DNF";
-}
-
-interface GaraFCI {
-  raceId: number;
-  title: string;
-  category: string;
-  startDate: string;
-  location: string;
+// Helper DB: salva articolo pubblicato
+async function savePublishedArticle(params: {
   slug: string;
-  rankings: RaceRanking[];
+  titleIt: string;
+  raceName: string;
+  sourceUrl?: string;
+}): Promise<void> {
+  await db.query(
+    `INSERT INTO published_articles (slug, title_it, race_name, source_url)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (slug) DO NOTHING`,
+    [params.slug, params.titleIt, params.raceName, params.sourceUrl ?? ""]
+  );
 }
 
-interface AtletaInClassifica {
-  name: string;
-  team: string;
-  posizione: number | null;
-  punti: number | null;
-  profileUrl: string | null;
-}
+const RC_BASE = "https://radiociclismo.com";
+const PCS_BASE = "https://www.procyclingstats.com";
 
-// ─── Session cookie RC ────────────────────────────────────────────────────────
+const STILI = [
+  {
+    id: "EPICO_NARRATORE",
+    prompt: `Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta.
+Usa esclusivamente i dati reali presenti nel contesto (classifica, squadra, gara odierna).
+Se il corridore non vince da N giorni e il dato è fornito, citalo con il numero esatto.
+Se è un neoprofessionista, sottolinea la "prima volta" senza aggiungere dettagli inventati.
+VIETATO inventare biografie, infortuni passati, origini familiari o dichiarazioni non verificabili.
+Tono narrativo, empatico, ritmo letterario.
+CLAUSOLA DI SICUREZZA: se non hai dati storici sul corridore, passa automaticamente allo stile CRONISTA FLASH.`
+  },
+  {
+    id: "SPECIALISTA_TECNICO",
+    prompt: `Stile LO SPECIALISTA TECNICO — Focus: il "come" si è vinta la gara.
+Analizza i momenti chiave della gara: quando è scattato l'attacco, come si è formata la selezione, gestione del ritmo in salita.
+Usa verbi tecnici: scollinare, rilanciare, fare il buco, andare in fuga, gestire il ventaglio.
+Basati SOLO sui dati di classifica e percorso forniti. Non inventare pendenze o tempi di scalata se non presenti.
+Tono autorevole e tecnico. Zero aggettivi vuoti.`
+  },
+  {
+    id: "FLASH_NEWS",
+    prompt: `Stile IL CRONISTA FLASH — Focus: immediatezza e fatti nudi.
+Inizia con il fatto principale: chi ha vinto, gara, anno.
+Poi classifica Top 10 sintetica con distacchi se disponibili.
+Poi classifica generale aggiornata se disponibile.
+Zero commenti, zero speculazioni, zero dettagli non forniti.
+Frasi brevi. Perfetto per social e lettura rapida.`
+  },
+  {
+    id: "TECH_GURU",
+    prompt: `Stile IL TECH-GURU — Focus: materiali e performance atletica.
+Cita solo brand di bici e componenti effettivamente usati dal team vincitore se presenti nei dati.
+Se disponibili dati su distacchi, tempi o record storici, usali per fare confronti concreti.
+CLAUSOLA DI SICUREZZA: se non hai dati tecnici su bici o wattaggio, passa automaticamente allo stile SPECIALISTA TECNICO limitandoti alla dinamica della gara odierna.
+Tono scientifico, curioso, specialistico.`
+  },
+  {
+    id: "SPECIALISTA_TECNICO_2",
+    prompt: `Stile LO SPECIALISTA TECNICO (variante) — Focus: tattica di squadra e dinamiche di gara.
+Analizza come la squadra vincitrice ha controllato la corsa, chi ha fatto il lavoro di squadra, come si è sviluppato lo sprint o l'attacco decisivo.
+Basati esclusivamente sui dati forniti (classifica, squadre, distacchi).
+Tono autorevole. Verbi tecnici del ciclismo. Nessun dettaglio inventato.`
+  },
+];
+
+// NOTA: lo stile INSIDER DI SQUADRA (sponsor/management) è riservato ad articoli
+// dedicati ai team (presentazioni, cambi sponsor) — NON viene usato per cronache di gara.
+
+// Contatore globale per rotazione stili
+
+const STRUTTURE = [
+  `Struttura: 1.Apertura con il fatto principale (vincitore + gara) 2.Top 10 commentato 3.Analisi nello stile scelto 4.Conclusione`,
+];
+
+// Contatore globale per rotazione stili
+let articoliGenerati = 0;
+
 async function getSessionCookie(): Promise<string> {
   try {
     const res = await axios.post(
@@ -66,309 +110,394 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-// ─── Leggi gare FCI di oggi dal DB ───────────────────────────────────────────
-async function getGareFCIOggi(): Promise<GaraFCI[]> {
-  const oggi = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-
-  const res = await db.query<{
-    race_id: number;
-    title: string;
-    category: string;
-    start_date: Date;
-    location: string;
-    slug: string;
-    rankings: RaceRanking[];
-  }>(
-    `SELECT
-       r.id          AS race_id,
-       r.title,
-       r.category,
-       r.start_date,
-       r.location,
-       r.slug,
-       rr.rankings
-     FROM races r
-     JOIN race_results rr ON rr.race_id = r.id
-     WHERE DATE(r.start_date) = $1
-       AND rr.rankings IS NOT NULL
-       AND jsonb_array_length(rr.rankings::jsonb) > 0
-     ORDER BY r.id`,
-    [oggi]
-  );
-
-  return res.rows
-    .filter(row => {
-      const cat = (row.category || "").toLowerCase();
-      return CATEGORIE_ARTICOLO.some(c => cat.includes(c));
-    })
-    .map(row => ({
-      raceId: row.race_id,
-      title: row.title,
-      category: row.category,
-      startDate: row.start_date.toISOString().split("T")[0],
-      location: row.location || "",
-      slug: row.slug,
-      rankings: ((row.rankings || []) as RaceRanking[]).filter(r => r.status === "classified"),
-    }));
-}
-
-// ─── Arricchisci top 10 con posizione in classifica RC Giovani ───────────────
-async function arricchisciConClassificaRC(
-  riders: RaceRanking[],
-  categoriaRC: string
-): Promise<AtletaInClassifica[]> {
-  let ranking: any[] = [];
+async function fetchPage(url: string): Promise<string> {
   try {
-    const res = await axios.get(
-      `${RC_BASE}/api/athletes-ranking?season=${new Date().getFullYear()}&category=${categoriaRC}&limit=100`
+    const result = execSync(
+      `curl -4 -s -L --http2 --max-time 30 \
+      -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36" \
+      -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+      -H "Accept-Language: it-IT,it;q=0.9,en;q=0.8" \
+      -H "Accept-Encoding: gzip, deflate, br" \
+      -H "Cache-Control: no-cache" \
+      -H "Referer: https://www.procyclingstats.com/" \
+      -H "sec-ch-ua: \\"Google Chrome\\";v=\\"135\\", \\"Not-A.Brand\\";v=\\"8\\", \\"Chromium\\";v=\\"135\\"" \
+      -H "sec-ch-ua-mobile: ?0" \
+      -H "sec-ch-ua-platform: \\"macOS\\"" \
+      -H "Sec-Fetch-Dest: document" \
+      -H "Sec-Fetch-Mode: navigate" \
+      -H "Sec-Fetch-Site: none" \
+      -H "Sec-Fetch-User: ?1" \
+      -H "Upgrade-Insecure-Requests: 1" \
+      --compressed \
+      "${url}"`,
+      { maxBuffer: 10 * 1024 * 1024 }
     );
-    ranking = res.data?.athletes ?? res.data ?? [];
-  } catch {
-    console.log(`[FCI] Classifica RC non disponibile per categoria ${categoriaRC}`);
+    return result.toString();
+  } catch (e: any) {
+    return `ERRORE: ${e.message}`;
   }
+}
 
-  return riders.slice(0, 10).map(rider => {
-    // FCI usa formato "COGNOME NOME" tutto maiuscolo
-    const parts = rider.name.toLowerCase().trim().split(" ");
-    const cognome = parts[0] ?? "";
-    const nome = parts.slice(1).join(" ");
+function parseGareFromPCS(html: string): Array<{ nome: string; url: string; genere: string; stato: string }> {
+  const $ = cheerio.load(html);
+  const gare: Array<{ nome: string; url: string; genere: string; stato: string }> = [];
+  const urlsSeen = new Set<string>();
 
-    const match = ranking.find((a: any) => {
-      const aCognome = (a.lastName ?? a.surname ?? "").toLowerCase();
-      const aNome = (a.firstName ?? a.name ?? "").toLowerCase();
-      return aCognome.includes(cognome) && (nome ? aNome.includes(nome.split(" ")[0]) : true);
-    });
+  // Struttura reale PCS: righe <tr> con data in <td class="hide cs500"> e link in <a href="race/...">
+  $("table tr").each((i, el) => {
+    const $el = $(el);
 
-    const posizione = match ? ranking.indexOf(match) + 1 : null;
+    // Cerca link a gare (href="race/nome/anno")
+    const link = $el.find("a[href^='race/']").first();
+    let nome = link.text().trim();
+    let url = link.attr("href") || "";
 
-    return {
-      name: rider.name,
-      team: rider.team,
-      posizione,
-      punti: match?.points ?? match?.totalPoints ?? null,
-      profileUrl: match?.slug ? `${RC_BASE}/giovani/atleta/${match.slug}` : null,
-    };
+    if (!nome || !url || urlsSeen.has(url)) return;
+
+    // Normalizza URL con slash iniziale
+    if (!url.startsWith("/")) url = "/" + url;
+
+    // Estrai la data dalla cella con classe cs500
+    const dataCell = $el.find("td.cs500, td[class*='cs500']").first().text().trim();
+
+    // Considera solo gare di oggi (data nel formato dd.mm)
+    const oggi = new Date();
+    const oggiStr = `${String(oggi.getDate()).padStart(2, "0")}.${String(oggi.getMonth() + 1).padStart(2, "0")}`;
+    
+    // Includi la gara se la data corrisponde a oggi, oppure se non c'è data (per sicurezza)
+    const isOggi = !dataCell || dataCell.includes(oggiStr);
+    if (!isOggi) return;
+
+    urlsSeen.add(url);
+    const genere = nome.toLowerCase().includes("women") || nome.toLowerCase().includes("femm") ? "women" : "men";
+    gare.push({ nome, url, genere, stato: "finished" });
+    console.log(`[PCS PARSE] ✅ Gara trovata: "${nome}" (data: ${dataCell}) → ${url}`);
   });
+
+  return gare;
 }
 
-// ─── DB: deduplicazione ───────────────────────────────────────────────────────
-async function isAlreadyPublished(raceName: string): Promise<boolean> {
-  const res = await db.query(
-    "SELECT id FROM published_articles WHERE race_name = $1 LIMIT 1",
-    [raceName]
-  );
-  return (res.rowCount ?? 0) > 0;
+function normalizzaNome(nome: string): string {
+  return nome
+    .toLowerCase()
+    .replace(/\d{4}/g, "")
+    .replace(/stage\s*\d+/gi, "")
+    .replace(/tappa\s*\d+/gi, "")
+    .replace(/results?/gi, "")
+    .replace(/classifica generale/gi, "")
+    .replace(/[^a-z\s]/g, "")
+    .trim();
 }
 
-async function savePublished(slug: string, titleIt: string, raceName: string): Promise<void> {
-  await db.query(
-    `INSERT INTO published_articles (slug, title_it, race_name, source_url)
-     VALUES ($1, $2, $3, $4) ON CONFLICT (slug) DO NOTHING`,
-    [slug, titleIt, raceName, `${RC_BASE}/giovani`]
-  );
+function fuzzyMatch(pcsNome: string, rcGare: any[], genere: string): any | null {
+  const pcsNorm = normalizzaNome(pcsNome);
+  const pcsParole = pcsNorm.split(/\s+/).filter(p => p.length >= 3);
+
+  let miglior: any = null;
+  let migliorScore = 0;
+
+  for (const gara of rcGare) {
+    if (genere === "women" && gara.gender !== "women") continue;
+    if (genere === "men" && gara.gender === "women") continue;
+
+    const rcNorm = normalizzaNome(gara.title);
+    const match = pcsParole.filter(p => rcNorm.includes(p)).length;
+    const score = pcsParole.length > 0 ? match / pcsParole.length : 0;
+
+    if (score >= 0.7 && score > migliorScore) {
+      migliorScore = score;
+      miglior = gara;
+    }
+  }
+  return miglior;
 }
 
-// ─── Formatta classifica per il prompt ───────────────────────────────────────
-function formatClassificaPerPrompt(atleti: AtletaInClassifica[]): string {
-  return atleti.map((a, i) => {
-    const pos = i + 1;
-    const rcInfo = a.posizione
-      ? `→ #${a.posizione} classifica RC Giovani (${a.punti ?? "?"} pt)`
-      : "→ non in classifica RC Giovani";
-    return `${pos}. ${a.name} (${a.team}) ${rcInfo}`;
-  }).join("\n");
+function generaCSV(risultati: any[]): Buffer {
+  const header = "POSIZIONE,NOME,SQUADRA,TEMPO,DISTACCO,NAZIONE\n";
+  const rows = risultati.map(r =>
+    `${r.posizione},"${r.nome}","${r.squadra}","${r.tempo ?? ""}","${r.distacco ?? ""}","${r.nazione ?? "IT"}"`
+  ).join("\n");
+  return Buffer.from(header + rows, "utf-8");
 }
 
-// ─── Workflow Inngest ─────────────────────────────────────────────────────────
-export const fciWorkflowFn = inngest.createFunction(
+export const cyclingWorkflowFn = inngest.createFunction(
   {
-    id: "fci-workflow",
-    name: "RadioCiclismo — Articoli Gare FCI Italiane",
+    id: "cycling-workflow",
+    name: "RadioCiclismo — Genera Articoli e Risultati",
     concurrency: { limit: 1 },
   },
-  { event: "cycling/generate.fci.article" },
+  { event: "cycling/generate.article" },
 
   async ({ event, step }) => {
     const report: any[] = [];
 
-    // 1. Login RC
-    const sessionCookie = await step.run("fci-login-rc", async () => {
+    const sessionCookie = await step.run("login-rc", async () => {
       const cookie = await getSessionCookie();
       if (!cookie) throw new Error("Login RC fallito");
       return cookie;
     });
 
-    // 2. Leggi gare FCI di oggi dal DB
-    const gareOggi = await step.run("fci-fetch-gare-db", async () => {
-      const gare = await getGareFCIOggi();
-      console.log(`[FCI] Gare trovate oggi: ${gare.length}`);
-      gare.forEach(g =>
-        console.log(`[FCI]  → "${g.title}" (${g.category}) — ${g.rankings.length} classificati`)
-      );
+    const rcGare = await step.run("fetch-rc-races", async () => {
+      const res = await axios.get(`${RC_BASE}/api/admin/races?status=approved`, {
+        headers: { Cookie: sessionCookie },
+      });
+      return res.data as any[];
+    });
+
+    const gareOggi = await step.run("scraping-pcs-gare", async () => {
+      const oggi = new Date().toISOString().split("T")[0]; // "2026-04-28"
+      const html = await fetchPage(`${PCS_BASE}/races.php?date=${oggi}&circuit=&class=&filter=Filter`);
+      if (html.startsWith("ERRORE")) throw new Error(html);
+
+      console.log("[PCS] Lunghezza HTML:", html.length);
+      console.log("[PCS] È Cloudflare:", html.includes("Just a moment"));
+
+      const gare = parseGareFromPCS(html);
+
+      if (gare.length === 0) {
+        console.log("[PCS] ⚠️ Nessuna gara trovata per oggi. HTML 4000-6000:");
+        console.log(html.substring(4000, 6000));
+        throw new Error("Nessuna gara trovata su PCS per oggi");
+      }
+
+      console.log(`[PCS] ✅ Trovate ${gare.length} gare:`, gare.map(g => g.nome));
       return gare;
     });
 
     if (gareOggi.length === 0) {
-      return { success: true, message: "Nessuna gara FCI con risultati oggi", report };
+      return { success: true, message: "Nessuna gara finita oggi su PCS", report };
     }
 
-    // 3. Processa ogni gara
     for (const gara of gareOggi) {
-      const garaReport: any = { nome: gara.title, azioni: [] };
+      const garaReport: any = { nome: gara.nome, azioni: [] };
 
       try {
-        // 3a. Check deduplicazione
-        const gia = await step.run(`fci-check-${gara.raceId}`, async () => {
-          const exists = await isAlreadyPublished(gara.title);
-          console.log(`[FCI] "${gara.title}" già pubblicata: ${exists}`);
-          return exists;
+        const articoloEsiste = await step.run(`check-articolo-${gara.nome}`, async () => {
+          const gia = await isAlreadyPublished(gara.nome);
+          console.log(`[CHECK] "${gara.nome}" già nel DB: ${gia}`);
+          return gia;
         });
 
-        if (gia) {
-          garaReport.azioni.push("Già pubblicata — skippata");
+        if (articoloEsiste) {
+          garaReport.azioni.push("Articolo già presente — skippato");
           report.push(garaReport);
           continue;
         }
 
-        // 3b. Arricchisci top 10 con classifica RC Giovani
-        const atletiArricchiti = await step.run(`fci-ranking-${gara.raceId}`, async () => {
-          const categoriaRC = mapCategoriaToRCRanking(gara.category);
-          const atleti = await arricchisciConClassificaRC(gara.rankings, categoriaRC);
-          const trovati = atleti.filter(a => a.posizione).length;
-          console.log(`[FCI] "${gara.title}" — ${trovati}/${atleti.length} atleti in classifica RC`);
-          return atleti;
+        const risultatiPCS = await step.run(`scraping-risultati-${gara.nome}`, async () => {
+          const url = `${PCS_BASE}${gara.url}`;
+          const html = await fetchPage(url);
+          if (html.startsWith("ERRORE")) return null;
+
+          const $ = cheerio.load(html);
+          const classificaArrivo: any[] = [];
+
+          // DEBUG: vediamo la struttura reale della pagina risultati PCS
+          console.log("[RISULTATI] URL:", url);
+          console.log("[RISULTATI] HTML lunghezza:", html.length);
+          console.log("[RISULTATI] Tabelle trovate:", $("table").length);
+          $("table").each((i, el) => {
+            const cls = $(el).attr("class") || "";
+            const righe = $(el).find("tr").length;
+            console.log(`[RISULTATI] Tabella ${i} class="${cls}" righe=${righe}`);
+            if (righe > 2) {
+              // Stampa le prime 2 righe di ogni tabella con più di 2 righe
+              $(el).find("tr").slice(0, 2).each((j, tr) => {
+                console.log(`[RISULTATI]   Riga ${j}:`, $(tr).text().replace(/\s+/g, " ").trim().substring(0, 150));
+              });
+            }
+          });
+
+          $("table tbody tr, div.result-row").each((i, el) => {
+            const $el = $(el);
+            const posizione = i + 1;
+            const nome = $el.find("td:nth-child(2), .rider-name").text().trim();
+            const squadra = $el.find("td:nth-child(3), .team-name").text().trim();
+            const tempo = $el.find("td:nth-child(4), .time").text().trim();
+
+            if (nome) {
+              classificaArrivo.push({ posizione, nome, squadra, tempo, distacco: "" });
+            }
+          });
+
+          console.log("[RISULTATI] Corridori estratti:", classificaArrivo.length);
+          if (classificaArrivo.length > 0) {
+            console.log("[RISULTATI] Primo:", JSON.stringify(classificaArrivo[0]));
+            console.log("[RISULTATI] Secondo:", JSON.stringify(classificaArrivo[1]));
+          }
+
+          return { classificaArrivo, percorso: "", distanzaKm: 0, dislivelloM: 0 };
         });
 
-        // 3c. Genera articolo IT
-        const articoloIT = await step.run(`fci-genera-it-${gara.raceId}`, async () => {
-          const vincitore = atletiArricchiti[0];
-          const anno = new Date().getFullYear();
-          const classificaFormattata = formatClassificaPerPrompt(atletiArricchiti);
-          const urlClassifica = `${RC_BASE}/giovani`;
+        if (!risultatiPCS) {
+          garaReport.azioni.push("Scraping PCS fallito — skippata");
+          report.push(garaReport);
+          continue;
+        }
 
-          const result = await generateObject({
-            model: google("gemini-2.5-flash-lite"),
-            prompt: `Sei un redattore sportivo specializzato in ciclismo giovanile italiano per RadioCiclismo.com.
+        // Rotazione stili deterministica (mod 5) — non casuale
+        const stile = STILI[articoliGenerati % STILI.length];
+        const struttura = STRUTTURE[0];
+        articoliGenerati++;
+
+        if (risultatiPCS.classificaArrivo.length > 0) {
+          const articoloIT = await step.run(`genera-it-${gara.nome}`, async () => {
+            const vincitore = risultatiPCS.classificaArrivo[0];
+            const top10 = risultatiPCS.classificaArrivo
+              .slice(0, 10)
+              .map(r => `${r.posizione}. ${r.nome} (${r.squadra})${r.distacco ? " +" + r.distacco : " [vincitore]"}`)
+              .join("\n");
+
+            const result = await generateObject({
+              model: google("gemini-2.5-flash-lite"),
+              prompt: `Sei un redattore sportivo specializzato in ciclismo per RadioCiclismo.com.
 
 ════════════════════════════════
 REGOLE ASSOLUTE — NON DEROGABILI
 ════════════════════════════════
-1. Usa ESCLUSIVAMENTE i dati forniti. Zero invenzioni, zero biografie romanzate.
-2. Il vincitore è ${vincitore.name} (${vincitore.team}). Deve comparire nel titolo.
-3. MAI usare placeholder come [VINCITORE], [SQUADRA], [DISTACCO].
-4. Se un dato manca, omettilo o scrivi "dato non disponibile".
-5. FALLBACK: se non hai dettagli tattici, usa stile FLASH NEWS — fatti diretti e classifica.
-6. Includi SEMPRE il link ${urlClassifica} nel corpo dell'articolo.
+1. USA ESCLUSIVAMENTE i dati forniti qui sotto. Non aggiungere fatti, citazioni, retroscena o dettagli non presenti.
+2. Se un dato manca (es. distacco, nazionalità), scrivi "–" o ometti il campo. MAI inventare.
+3. Il vincitore è sempre il corridore in POSIZIONE 1 della classifica fornita. Usa il suo nome esatto.
+4. Non menzionare fonti esterne, sponsor o dichiarazioni che non compaiono nei dati.
+5. FALLBACK AUTOMATICO: se lo stile richiede dati storici o tecnici (EPICO_NARRATORE, TECH_GURU) e questi non sono presenti nella classifica fornita, scrivi l'articolo in stile CRONISTA FLASH. Meglio un articolo corto e vero che uno lungo e inventato.
+6. Il titolo DEVE contenere: nome della gara + nome del vincitore (dalla posizione 1). MAI usare placeholder come [VINCITORE].
 
 ════════════════════════════════
 DATI REALI DELLA GARA
 ════════════════════════════════
-Gara: ${gara.title}
-Anno: ${anno}
-Categoria: ${gara.category}
-Luogo: ${gara.location || "Italia"}
-Data: ${gara.startDate}
+Gara: ${gara.nome}
+Anno: ${new Date().getFullYear()}
+Categoria: ${gara.genere === "women" ? "Ciclismo Femminile" : "Ciclismo Maschile"}
+Vincitore: ${vincitore.nome} (${vincitore.squadra})
 
-Top 10 con posizione in Classifica RC Giovani ${anno}:
-${classificaFormattata}
+Classifica finale Top 10:
+${top10}
+
+════════════════════════════════
+STILE EDITORIALE DA APPLICARE
+════════════════════════════════
+${stile.prompt}
 
 ════════════════════════════════
 STRUTTURA OBBLIGATORIA
 ════════════════════════════════
-1. APERTURA: chi ha vinto, gara, categoria, luogo.
-2. TOP 5: classifica con squadre.
-3. CLASSIFICA RC GIOVANI: come si posizionano vincitore e piazzati nella classifica RadioCiclismo.
-   - Se qualcuno è nelle prime 10 posizioni RC, evidenzialo con entusiasmo.
-   - Se nessuno è in classifica RC, scrivi che la vittoria può essere l'inizio del percorso.
-   - Chiudi questo paragrafo con: "Segui la classifica aggiornata su ${urlClassifica}"
-4. CHIUSURA: significato del risultato per la stagione ${anno}.
+${struttura}
 
-Lunghezza: 200-280 parole. Titolo: deve contenere nome gara + nome vincitore.
-Slug: kebab-case con nome-gara-categoria-anno.
-Tags: 3 tag specifici (nome gara, nome vincitore, categoria).`,
-            schema: z.object({
-              titolo: z.string(),
-              excerpt: z.string(),
-              contenuto: z.string(),
-              metaDescription: z.string(),
-              slug: z.string(),
-              tags: z.array(z.string()),
-              versioneSocial: z.string(),
-            }),
+Lunghezza corpo articolo: 250-350 parole.
+Titolo: sportivo, informativo, senza clickbait. Deve contenere il nome della gara e del vincitore.
+Slug SEO: formato kebab-case con nome-gara-vincitore-anno.
+Tags: massimo 3, specifici (nome gara, nome vincitore, squadra).`,
+              schema: z.object({
+                titolo: z.string(),
+                excerpt: z.string(),
+                contenuto: z.string(),
+                dettaglioExtra: z.string(),
+                metaDescription: z.string(),
+                slug: z.string(),
+                tags: z.array(z.string()),
+                versioneSocial: z.string(),
+                versioneInstagram: z.string(),
+                bulletPoints: z.array(z.string()),
+              }),
+            });
+            return result.object;
           });
-          return result.object;
-        });
 
-        // 3d. Genera versione EN
-        const articoloEN = await step.run(`fci-genera-en-${gara.raceId}`, async () => {
-          const result = await generateObject({
-            model: google("gemini-2.5-flash-lite"),
-            prompt: `You are a cycling sports journalist for RadioCiclismo.com.
-Translate and adapt this Italian article to professional English. Keep all facts identical. Do not invent anything.
+          const articoloEN = await step.run(`genera-en-${gara.nome}`, async () => {
+            const result = await generateObject({
+              model: google("gemini-2.5-flash-lite"),
+              prompt: `You are a senior cycling journalist for RadioCiclismo.com.
+Translate and adapt this Italian article to professional English journalism.
 
 Italian title: ${articoloIT.titolo}
-Italian content: ${articoloIT.contenuto}`,
-            schema: z.object({
-              titolo: z.string(),
-              excerpt: z.string(),
-              contenuto: z.string(),
-            }),
+Italian content: ${articoloIT.contenuto}
+
+DO NOT invent anything. Keep all facts identical.`,
+              schema: z.object({
+                titolo: z.string(),
+                excerpt: z.string(),
+                contenuto: z.string(),
+              }),
+            });
+            return result.object;
           });
-          return result.object;
+
+          const pubblicazione = await step.run(`pubblica-${gara.nome}`, async () => {
+            const body = {
+              slug: articoloIT.slug,
+              title: articoloIT.titolo,
+              excerpt: articoloIT.excerpt,
+              content: `${articoloIT.contenuto}\n\n${articoloIT.dettaglioExtra}`,
+              titleEn: articoloEN.titolo,
+              excerptEn: articoloEN.excerpt,
+              contentEn: articoloEN.contenuto,
+              author: "AI Agent",
+              publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              images: [],
+              hashtags: articoloIT.tags,
+              published: false,
+            };
+            console.log("[PUBBLICA] Body inviato:", JSON.stringify(body, null, 2));
+            try {
+              const res = await axios.post(
+                `${RC_BASE}/api/admin/articles`,
+                body,
+                { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
+              );
+              console.log("[PUBBLICA] Risposta:", res.status, JSON.stringify(res.data));
+              // Salva nel DB per deduplicazione futura
+              await savePublishedArticle({
+                slug: body.slug,
+                titleIt: body.title,
+                raceName: gara.nome,
+                sourceUrl: `${PCS_BASE}${gara.url}`,
+              });
+              console.log("[PUBBLICA] Salvato in published_articles:", body.slug);
+              return { id: res.data?.id, success: true };
+            } catch (err: any) {
+              console.error("[PUBBLICA] Errore status:", err.response?.status);
+              console.error("[PUBBLICA] Errore body:", JSON.stringify(err.response?.data));
+              throw err;
+            }
+          });
+
+          garaReport.azioni.push(`Articolo creato in bozza — ID: ${pubblicazione.id}`);
+          garaReport.azioni.push(`Stile: ${stile.id}`);
+        } else {
+          garaReport.azioni.push("Classifica vuota — articolo saltato, solo risultati caricati");
+        }
+
+        const garaRC = await step.run(`match-gara-${gara.nome}`, async () => {
+          return fuzzyMatch(gara.nome, rcGare, gara.genere);
         });
 
-        // 3e. Pubblica su RC
-        const pubblicazione = await step.run(`fci-pubblica-${gara.raceId}`, async () => {
-          const body = {
-            slug: articoloIT.slug,
-            title: articoloIT.titolo,
-            excerpt: articoloIT.excerpt,
-            content: articoloIT.contenuto,
-            titleEn: articoloEN.titolo,
-            excerptEn: articoloEN.excerpt,
-            contentEn: articoloEN.contenuto,
-            author: "AI Agent",
-            publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // +1h
-            images: [],
-            hashtags: articoloIT.tags,
-            published: false,
-          };
-
-          console.log("[FCI PUBBLICA] Slug:", body.slug, "| Titolo:", body.title);
-
-          try {
-            const res = await axios.post(
-              `${RC_BASE}/api/admin/articles`,
-              body,
-              { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
+        if (garaRC) {
+          await step.run(`upload-risultati-${gara.nome}`, async () => {
+            const csvBuffer = generaCSV(risultatiPCS.classificaArrivo);
+            const form = new FormData();
+            form.append("file", csvBuffer, {
+              filename: `risultati-${garaRC.slug}.csv`,
+              contentType: "text/csv",
+            });
+            await axios.post(
+              `${RC_BASE}/api/admin/races/${garaRC.id}/import-results`,
+              form,
+              { headers: { ...form.getHeaders(), Cookie: sessionCookie } }
             );
-            console.log("[FCI PUBBLICA] ✅ ID:", res.data?.id);
-            await savePublished(body.slug, body.title, gara.title);
-            return { id: res.data?.id, success: true };
-          } catch (err: any) {
-            console.error("[FCI PUBBLICA] ❌ Status:", err.response?.status);
-            console.error("[FCI PUBBLICA] ❌ Body:", JSON.stringify(err.response?.data));
-            throw err;
-          }
-        });
-
-        garaReport.azioni.push(`✅ Articolo creato — ID: ${pubblicazione.id}`);
-        garaReport.azioni.push(
-          `Atleti in classifica RC: ${atletiArricchiti.filter(a => a.posizione).length}/${atletiArricchiti.length}`
-        );
+            return { success: true };
+          });
+          garaReport.azioni.push(`Risultati caricati su gara RC: "${garaRC.title}"`);
+        } else {
+          garaReport.azioni.push(`Nessuna gara RC abbinata — risultati NON caricati`);
+        }
 
       } catch (err: any) {
-        garaReport.azioni.push(`❌ ERRORE: ${err.message}`);
-        console.error(`[FCI] Errore su "${gara.title}":`, err.message);
+        garaReport.azioni.push(`ERRORE: ${err.message}`);
       }
 
       report.push(garaReport);
     }
 
-    return {
-      success: true,
-      gareProcessate: gareOggi.length,
-      report,
-    };
+    return { success: true, gaareProcessate: gareOggi.length, report };
   }
 );
