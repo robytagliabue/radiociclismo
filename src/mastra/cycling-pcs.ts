@@ -34,63 +34,46 @@ export const cyclingDispatchFn = inngest.createFunction(
 
 // --- 2. WORKER ---
 export const cyclingProcessRaceFn = inngest.createFunction(
-  { 
-    id: "cycling-worker", 
-    name: "RadioCiclismo — PCS Worker",
-    concurrency: 2 
-  },
+  { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
   { event: "cycling/process.single.race" },
   async ({ event, step }) => {
     const { gara, index } = event.data;
     const raceSlug = slugify(gara.nome);
-
-    const dati = {
-      isComplete: true,
-      classifica: [{ pos: 1, nome: "Pogačar", team: "UAE" }]
-    };
-
+    const dati = { isComplete: true, classifica: [{ pos: 1, nome: "Pogačar", team: "UAE" }] };
+    
     if (!dati.isComplete) return { status: "skipped", reason: "insufficient_data" };
-
     const stile = STILI[index % STILI.length];
 
     // 3. GENERAZIONE ARTICOLO IT
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
-      const res = await cyclingAgent.text({
-        messages: [`Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
+      // Torniamo a .generate() che è il metodo principale di Mastra
+      const res = await cyclingAgent.generate(
+        `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
         Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
-        Top 10: ${dati.classifica.slice(0,10).map(r => `${r.pos}. ${r.nome}`).join(", ")}.
         ${stile.prompt} 
-        RISPONDI ESCLUSIVAMENTE CON UN JSON VALIDO: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`]
-      });
+        Rispondi in formato JSON con i campi: titolo, contenuto, excerpt, slug, tags.`
+      );
       
-      try {
-        const cleanText = res.text.replace(/```json|```/g, "").trim();
-        return JSON.parse(cleanText);
-      } catch (e) {
-        return { titolo: gara.nome, contenuto: res.text, slug: raceSlug, tags: ["ciclismo"] };
-      }
+      // In Mastra .generate() restituisce l'oggetto validato in .object
+      // Se non lo trovi lì, prova a vedere se l'agente è configurato per l'output strutturato
+      return (res as any).object || res;
     });
 
     // 4. TRADUZIONE EN
     const articoloEN = await step.run(`gen-en-${raceSlug}`, async () => {
-      const res = await cyclingAgent.text({
-        messages: [`Translate this cycling article to English. Return ONLY JSON: { "titolo": "", "contenuto": "", "excerpt": "" }. 
-        Article: ${JSON.stringify(articoloIT)}`]
-      });
-      try {
-        const cleanText = res.text.replace(/```json|```/g, "").trim();
-        return JSON.parse(cleanText);
-      } catch (e) {
-        return { titolo: articoloIT.titolo, contenuto: res.text };
-      }
+      const res = await cyclingAgent.generate(
+        `Translate this article into English: ${JSON.stringify(articoloIT)}. 
+        Return JSON with: titolo, contenuto, excerpt.`
+      );
+      return (res as any).object || res;
     });
 
     // 5. PUBBLICAZIONE
-    const pub = await step.run(`publish-${raceSlug}`, async () => {
+    await step.run(`publish-${raceSlug}`, async () => {
       console.log(`🚀 Articolo generato: ${articoloIT.titolo}`);
-      return { id: "success-id", success: true };
+      return { success: true };
     });
 
-    return { status: "success", id: pub.id, race: gara.nome };
+    return { status: "success", race: gara.nome };
   }
 );
