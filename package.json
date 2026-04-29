@@ -8,7 +8,8 @@
     "build": "echo 'Build OK'"
   },
 "dependencies": {
-    "@mastra/core": "latest",
+    "@ai-sdk/anthropic": "^1.0.0",
+  "@mastra/core": "latest",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.10",
     "inngest": "^3.29.0",
