@@ -4,11 +4,8 @@ import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
 
-// Configurazione basi
 const RC_BASE = "https://radiociclismo.com";
 const BIPRO_URL = "https://bici.pro/news/giovani/";
-
-// --- UTILS ---
 
 async function getSessionCookie(): Promise<string> {
   try {
@@ -27,86 +24,47 @@ function fetchPage(url: string): string {
   } catch (e: any) { return ""; }
 }
 
-// --- WORKFLOW NAZIONALE ---
-
 export const fciWorkflowFn = inngest.createFunction(
   { id: "fci-workflow", name: "RadioCiclismo — Nazionali & News", concurrency: 2 },
   { event: FCI_EVENT },
   async ({ step }) => {
     const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
 
-    // 1. SCRAPING NEWS (Bici.pro / Giovani)
     const newsArticoli = await step.run("scrape-bicipro", async () => {
       const html = fetchPage(BIPRO_URL);
       const $ = cheerio.load(html);
       const news: any[] = [];
-
       $("article").each((i, el) => {
         const titolo = $(el).find("h2").text().trim();
         const url = $(el).find("a").attr("href");
-        if (titolo && url && i < 3) {
-          news.push({ titolo, url, fonte: "Bici.pro" });
-        }
+        if (titolo && url && i < 3) news.push({ titolo, url });
       });
       return news;
     });
 
-    // 2. ELABORAZIONE NEWS CON AGENTE MASTRA
     for (const art of newsArticoli) {
       await step.run(`process-news-${art.titolo.substring(0,10)}`, async () => {
-        
-        // Controllo duplicati rapido
-        const check = await axios.get(`${RC_BASE}/api/admin/articles?search=${encodeURIComponent(art.titolo.substring(0,15))}`, 
-          { headers: { Cookie: sessionCookie } }
-        );
-        if (check.data?.articles?.length > 0 || check.data?.length > 0) return;
-
-        // Estrazione testo completo notizia
         const htmlArt = fetchPage(art.url);
         const $art = cheerio.load(htmlArt);
         const corpoTesto = $art("article, .entry-content").text().substring(0, 3000);
 
-        // Recupero Ranking RadioCiclismo
-        const categoria = art.titolo.toLowerCase().includes("juniores") ? "juniores" : "under23";
-        let rankingInfo = "Nessun dato ranking disponibile.";
-        try {
-          const rankRes = await axios.get(`${RC_BASE}/api/athletes-ranking?category=${categoria}&limit=5`);
-          rankingInfo = JSON.stringify(rankRes.data);
-        } catch (e) {}
+        // Usiamo .generate() passandogli direttamente la stringa
+        const res = await cyclingAgent.generate(
+          `Sei l'esperto di RadioCiclismo. Rielabora questa notizia: ${art.titolo}. 
+          Testo: ${corpoTesto}. 
+          Rispondi in JSON con: titolo, contenuto, excerpt, slug, tags.`
+        );
 
-        // CHIAMATA ALL'AGENTE MASTRA (Metodo .text() per stabilità)
-        const res = await cyclingAgent.text({
-          messages: [`Sei l'esperto del vivaio di RadioCiclismo. Rielabora questa notizia italiana: ${art.titolo}.
-          Testo originale: ${corpoTesto}.
-          Contesto Ranking attuale (${categoria}): ${rankingInfo}.
-          Obiettivo: Scrivi un articolo tecnico e incoraggiante per il ciclismo italiano.
-          RISPONDI ESCLUSIVAMENTE CON UN JSON VALIDO: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`]
-        });
+        const articolo = (res as any).object || res;
 
-        let articolo;
-        try {
-          // Pulizia del testo da eventuali blocchi di codice markdown
-          const cleanText = res.text.replace(/```json|```/g, "").trim();
-          articolo = JSON.parse(cleanText);
-        } catch (e) {
-          // Fallback se il parsing fallisce
-          articolo = { 
-            titolo: art.titolo, 
-            contenuto: res.text, 
-            slug: art.titolo.toLowerCase().replace(/ /g, "-"),
-            tags: ["ciclismo", "giovani"]
-          };
-        }
-
-        // 3. PUBBLICAZIONE (Bozza)
         await axios.post(`${RC_BASE}/api/admin/articles`, {
-          slug: articolo.slug || art.titolo.toLowerCase().replace(/ /g, "-"),
+          slug: articolo.slug || art.titolo.replace(/ /g, "-"),
           title: articolo.titolo,
           content: articolo.contenuto,
           excerpt: articolo.excerpt || "",
           author: "Redazione Giovani AI",
           published: false,
-          hashtags: articolo.tags || ["ciclismo", "giovani", "italia"]
+          hashtags: articolo.tags || ["ciclismo"]
         }, { headers: { Cookie: sessionCookie } });
       });
     }
