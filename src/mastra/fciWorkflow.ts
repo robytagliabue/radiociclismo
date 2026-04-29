@@ -3,11 +3,6 @@ import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 import axios from "axios";
-import pg from "pg";
-
-const { Pool } = pg;
-const db = new Pool({ connectionString: process.env.DATABASE_URL });
-
 const RC_BASE = "https://radiociclismo.com";
 const BIPRO_URL = "https://bici.pro/news/giovani/";
 
@@ -249,21 +244,18 @@ async function arricchisciConClassificaRC(
   });
 }
 
-// ─── DB: deduplicazione ───────────────────────────────────────────────────────
-async function isAlreadyPublished(raceName: string): Promise<boolean> {
-  const res = await db.query(
-    "SELECT id FROM published_articles WHERE race_name = $1 LIMIT 1",
-    [raceName]
-  );
-  return (res.rowCount ?? 0) > 0;
-}
-
-async function savePublished(slug: string, titleIt: string, raceName: string): Promise<void> {
-  await db.query(
-    `INSERT INTO published_articles (slug, title_it, race_name, source_url)
-     VALUES ($1, $2, $3, $4) ON CONFLICT (slug) DO NOTHING`,
-    [slug, titleIt, raceName, `${RC_BASE}/giovani`]
-  );
+// ─── DB: deduplicazione via API RC ───────────────────────────────────────────
+async function isAlreadyPublished(titolo: string, cookie: string): Promise<boolean> {
+  try {
+    const res = await axios.get(
+      `${RC_BASE}/api/admin/articles?search=${encodeURIComponent(titolo.substring(0, 30))}&limit=5`,
+      { headers: { Cookie: cookie } }
+    );
+    const articles = res.data?.articles ?? res.data ?? [];
+    return articles.some((a: any) =>
+      a.title?.toLowerCase().includes(titolo.toLowerCase().substring(0, 20))
+    );
+  } catch { return false; }
 }
 
 // ─── Formatta classifica per il prompt ───────────────────────────────────────
@@ -317,7 +309,7 @@ export const fciWorkflowFn = inngest.createFunction(
       try {
         // 3a. Check deduplicazione
         const gia = await step.run(`fci-check-${gara.raceId}`, async () => {
-          const exists = await isAlreadyPublished(gara.title);
+          const exists = await isAlreadyPublished(gara.title, sessionCookie);
           console.log(`[FCI] "${gara.title}" già pubblicata: ${exists}`);
           return exists;
         });
@@ -422,14 +414,14 @@ Italian content: ${articoloIT.contenuto}`,
             title: articoloIT.titolo,
             excerpt: articoloIT.excerpt,
             content: articoloIT.contenuto,
-            titleEn: articoloEN.titolo,
-            excerptEn: articoloEN.excerpt,
-            contentEn: articoloEN.contenuto,
+            title_en: articoloEN.titolo,
+            excerpt_en: articoloEN.excerpt,
+            content_en: articoloEN.contenuto,
             author: "AI Agent",
-            publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // +1h
+            publish_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // +1h
             images: [],
             hashtags: articoloIT.tags,
-            published: false,
+            is_published: false,
           };
 
           console.log("[FCI PUBBLICA] Slug:", body.slug, "| Titolo:", body.title);
@@ -441,7 +433,6 @@ Italian content: ${articoloIT.contenuto}`,
               { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
             );
             console.log("[FCI PUBBLICA] ✅ ID:", res.data?.id);
-            await savePublished(body.slug, body.title, gara.title);
             return { id: res.data?.id, success: true };
           } catch (err: any) {
             console.error("[FCI PUBBLICA] ❌ Status:", err.response?.status);
@@ -476,11 +467,7 @@ Italian content: ${articoloIT.contenuto}`,
       try {
         // Check deduplicazione per titolo
         const gia = await step.run(`bipro-check-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
-          const res = await db.query(
-            "SELECT id FROM published_articles WHERE race_name = $1 OR slug LIKE $2 LIMIT 1",
-            [art.titolo, `%${art.url.split("/").filter(Boolean).pop()}%`]
-          );
-          return (res.rowCount ?? 0) > 0;
+          return await isAlreadyPublished(art.titolo, sessionCookie);
         });
 
         if (gia) {
@@ -618,14 +605,14 @@ Italian content: ${articoloIT.contenuto}`,
             title: articoloIT.titolo,
             excerpt: articoloIT.excerpt,
             content: articoloIT.contenuto,
-            titleEn: articoloEN.titolo,
-            excerptEn: articoloEN.excerpt,
-            contentEn: articoloEN.contenuto,
+            title_en: articoloEN.titolo,
+            excerpt_en: articoloEN.excerpt,
+            content_en: articoloEN.contenuto,
             author: "AI Agent",
-            publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            publish_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             images: [],
             hashtags: articoloIT.tags,
-            published: false,
+            is_published: false,
           };
           try {
             const res = await axios.post(
@@ -634,11 +621,6 @@ Italian content: ${articoloIT.contenuto}`,
               { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
             );
             console.log("[BICI.PRO PUBBLICA] ✅ ID:", res.data?.id);
-            await db.query(
-              `INSERT INTO published_articles (slug, title_it, race_name, source_url)
-               VALUES ($1, $2, $3, $4) ON CONFLICT (slug) DO NOTHING`,
-              [body.slug, body.title, art.titolo, art.url]
-            );
             return { id: res.data?.id, success: true };
           } catch (err: any) {
             console.error("[BICI.PRO PUBBLICA] ❌", err.response?.status, JSON.stringify(err.response?.data));
