@@ -405,22 +405,35 @@ DO NOT invent anything. Keep all facts identical.`,
             });
             return result.object;
           });
-
           const pubblicazione = await step.run(`pubblica-${gara.nome}`, async () => {
             const body = {
               slug: articoloIT.slug,
               title: articoloIT.titolo,
               excerpt: articoloIT.excerpt,
               content: `${articoloIT.contenuto}\n\n${articoloIT.dettaglioExtra}`,
-              title_en: articoloEN.titolo,
-              excerpt_en: articoloEN.excerpt,
-              content_en: articoloEN.contenuto,
+              titleEn: articoloEN.titolo,
+              excerptEn: articoloEN.excerpt,
+              contentEn: articoloEN.contenuto,
               author: "AI Agent",
-              publish_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+              publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
               images: [],
               hashtags: articoloIT.tags,
-              is_published: false,
+              published: false,
             };
+            console.log("[PUBBLICA] Body inviato:", JSON.stringify(body, null, 2));
+            try {
+              const res = await axios.post(
+                `${RC_BASE}/api/admin/articles`,
+                body,
+                { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
+              );
+              console.log("[PUBBLICA] Risposta:", res.status, JSON.stringify(res.data));
+              return { id: res.data?.id, success: true };
+            } catch (err: any) {
+              console.error("[PUBBLICA] Errore dettagliato:", JSON.stringify(err.response?.data));
+              throw err;
+            }
+          });
             console.log("[PUBBLICA] Body inviato:", JSON.stringify(body, null, 2));
             try {
               const res = await axios.post(
