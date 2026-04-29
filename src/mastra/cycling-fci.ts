@@ -1,5 +1,5 @@
 import { inngest, FCI_EVENT } from "../client.js";
-import { cyclingAgent } from "./cyclingAgent.js"; // Importiamo l'Agente Mastra
+import { cyclingAgent } from "./cyclingAgent.js"; 
 import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
@@ -74,16 +74,22 @@ export const fciWorkflowFn = inngest.createFunction(
           rankingInfo = JSON.stringify(rankRes.data);
         } catch (e) {}
 
-        // CHIAMATA ALL'AGENTE MASTRA
-        const result = await cyclingAgent.generate({
-          prompt: `Sei l'esperto del vivaio di RadioCiclismo. Rielabora questa notizia italiana: ${art.titolo}.
-          Testo originale: ${corpoTesto}.
-          Contesto Ranking attuale (${categoria}): ${rankingInfo}.
-          Usa i tuoi strumenti per verificare se abbiamo già parlato di questi atleti.
-          Obiettivo: Scrivi un articolo tecnico e incoraggiante per il ciclismo italiano.`,
+        // CHIAMATA ALL'AGENTE MASTRA (Sistemata con generateLegacy e messages)
+        const result = await cyclingAgent.generateLegacy({
+          messages: [
+            {
+              role: "user" as const,
+              content: `Sei l'esperto del vivaio di RadioCiclismo. Rielabora questa notizia italiana: ${art.titolo}.
+              Testo originale: ${corpoTesto}.
+              Contesto Ranking attuale (${categoria}): ${rankingInfo}.
+              Obiettivo: Scrivi un articolo tecnico e incoraggiante per il ciclismo italiano. 
+              Genera un JSON con: titolo, contenuto, excerpt, slug, tags.`
+            }
+          ]
         });
 
-        const articolo = result.object;
+        // Fallback per l'estrazione dell'oggetto
+        const articolo = (result.object || result) as any;
 
         // 3. PUBBLICAZIONE (Bozza)
         await axios.post(`${RC_BASE}/api/admin/articles`, {
