@@ -1,4 +1,4 @@
-import { inngest } from "./client"; // Oppure "./client.js";
+import { inngest } from "./client.js";
 import { cyclingDispatchFn, cyclingProcessRaceFn } from "./cycling-pcs";
 import { fciWorkflowFn } from "./cycling-fci";
 
