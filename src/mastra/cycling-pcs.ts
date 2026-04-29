@@ -1,4 +1,4 @@
-import { inngest } from "./client.js"; // Modificato per puntare al client centralizzato
+import { inngest } from "../client.js"; // Modificato per puntare al client centralizzato
 import { cyclingAgent } from "./cyclingAgent.js"; // 1. IMPORTA IL TUO AGENTE
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
