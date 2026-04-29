@@ -10,29 +10,48 @@ function fetchPage(url: string): string {
   try {
     const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0" --compressed "${url}"`;
     return execSync(cmd, { maxBuffer: 10 * 1024 * 1024 }).toString();
-  } catch (e: any) { return ""; }
+  } catch (e) { return ""; }
 }
 
 export const fciWorkflowFn = inngest.createFunction(
   { id: "fci-workflow", name: "RadioCiclismo — Nazionali & News", concurrency: 2 },
   { event: FCI_EVENT },
   async ({ step }) => {
-    // Simuliamo lo scraping per brevità
-    const newsArticoli = [{ titolo: "Giro d'Abruzzo", url: "https://bici.pro/news/giovani/" }];
+    // 1. SCRAPING
+    const newsArticoli = await step.run("scrape-news", async () => {
+      const html = fetchPage("https://bici.pro/news/giovani/");
+      const $ = cheerio.load(html);
+      const news: any[] = [];
+      $("article").each((i, el) => {
+        const titolo = $(el).find("h2").text().trim();
+        const url = $(el).find("a").attr("href");
+        if (titolo && url && i < 2) news.push({ titolo, url });
+      });
+      return news;
+    });
 
+    // 2. ELABORAZIONE AI
     for (const art of newsArticoli) {
-      await step.run(`process-news-${art.titolo.substring(0,5)}`, async () => {
-        const res = await cyclingAgent.generateLegacy([
-          {
-            role: "user",
-            content: `Rielabora news: ${art.titolo}. Ritorna JSON: titolo, contenuto, excerpt, slug, tags.`
-          }
-        ] as any);
+      await step.run(`process-fci-${art.titolo.substring(0,5)}`, async () => {
+        const htmlArt = fetchPage(art.url);
+        const $art = cheerio.load(htmlArt);
+        const corpoTesto = $art("article").text().substring(0, 2000);
+
+        const res = await cyclingAgent.generateLegacy({
+          messages: [
+            {
+              role: "user",
+              content: `Rielabora per RadioCiclismo: ${art.titolo}. Testo: ${corpoTesto}. 
+              RITORNA SOLO JSON: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`
+            }
+          ]
+        });
 
         const articolo = (res as any).object || res;
-        console.log("FCI Generato:", articolo.titolo);
+        console.log("Generato FCI:", articolo.titolo);
       });
     }
+
     return { processed: newsArticoli.length };
   }
 );
