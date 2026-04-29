@@ -5,6 +5,7 @@ import { z } from "zod";
 import axios from "axios";
 const RC_BASE = "https://radiociclismo.com";
 const BIPRO_URL = "https://bici.pro/news/giovani/";
+const FCI_STRADA_URL = "https://www.federciclismo.it/strada/";
 
 // ─── Categorie FCI che generano articoli ──────────────────────────────────────
 const CATEGORIE_ARTICOLO = ["allievi", "juniores", "under23", "elite"];
@@ -121,6 +122,67 @@ function scrapaBiciProOggi(): BiciProArticolo[] {
 
   console.log(`[BICI.PRO] Articoli trovati oggi: ${articoli.length}`);
   return articoli;
+}
+
+// ─── Scrapa lista articoli di oggi da federciclismo.it/strada ───────────────
+function scrapaFciStradaOggi(): BiciProArticolo[] {
+  const html = fetchPage(FCI_STRADA_URL);
+  if (html.startsWith("ERRORE")) {
+    console.log("[FCI STRADA] Fetch fallito:", html);
+    return [];
+  }
+
+  const $ = cheerio.load(html);
+  const oggi = new Date().toISOString().split("T")[0];
+  const articoli: BiciProArticolo[] = [];
+
+  $("article, .post, .news-item, .entry, .notizia, li.article, .card").each((_, el) => {
+    const $el = $(el);
+
+    const link = $el.find("a[href]").first();
+    let url = link.attr("href") || "";
+    if (!url) return;
+    if (!url.startsWith("http")) url = "https://www.federciclismo.it" + url;
+
+    const titolo = ($el.find("h2, h3, h4, .title, .entry-title, .titolo").first().text() || link.text()).trim();
+    if (!titolo || titolo.length < 5) return;
+
+    // Estrai data
+    const dateAttr = $el.find("time").attr("datetime") ||
+                     $el.find("[datetime]").attr("datetime") || "";
+    const dataGara = dateAttr.substring(0, 10);
+    if (dataGara !== oggi) return;
+
+    // Categoria dal testo
+    const testoLower = (titolo + url).toLowerCase();
+    let categoria = "giovani";
+    if (testoLower.includes("juniores") || testoLower.includes("junior")) categoria = "juniores";
+    else if (testoLower.includes("allievi") || testoLower.includes("allievo")) categoria = "allievi";
+    else if (testoLower.includes("under23") || testoLower.includes("u23")) categoria = "under23";
+    else if (testoLower.includes("elite")) categoria = "elite";
+
+    articoli.push({ titolo, url, data: dataGara, testo: "", categoria });
+  });
+
+  console.log(`[FCI STRADA] Articoli trovati oggi: ${articoli.length}`);
+  return articoli;
+}
+
+// ─── Fetch testo completo di un articolo federciclismo.it ────────────────────
+function fetchTestoFciStrada(url: string): string {
+  const html = fetchPage(url);
+  if (html.startsWith("ERRORE")) return "";
+
+  const $ = cheerio.load(html);
+  $("nav, header, footer, aside, script, style, .sidebar, .widget, .comments, .advertisement, .menu").remove();
+
+  const testo = (
+    $(".article-body, .entry-content, .post-content, .content-articolo, .testo, article .content, main article").first().text() ||
+    $("article").first().text() ||
+    $("main").first().text()
+  ).replace(/\s+/g, " ").trim();
+
+  return testo.substring(0, 3000);
 }
 
 // ─── Fetch testo completo di un singolo articolo bici.pro ────────────────────
@@ -638,10 +700,186 @@ Italian content: ${articoloIT.contenuto}`,
       report.push(artReport);
     }
 
+    // 5. Pipeline federciclismo.it/strada — indipendente
+    const articoliFciStrada = await step.run("fci-strada-fetch-lista", async () => {
+      const lista = scrapaFciStradaOggi();
+      console.log(`[FCI STRADA] ${lista.length} articoli da processare`);
+      return lista;
+    });
+
+    for (const art of articoliFciStrada) {
+      const artReport: any = { nome: art.titolo, fonte: "federciclismo.it/strada", azioni: [] };
+
+      try {
+        const gia = await step.run(`fci-strada-check-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
+          return await isAlreadyPublished(art.titolo, sessionCookie);
+        });
+
+        if (gia) {
+          artReport.azioni.push("Già pubblicato — skippato");
+          report.push(artReport);
+          continue;
+        }
+
+        const testo = await step.run(`fci-strada-testo-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
+          const t = fetchTestoFciStrada(art.url);
+          console.log(`[FCI STRADA] Testo estratto per "${art.titolo}": ${t.length} char`);
+          if (t.length < 100) {
+            console.log(`[FCI STRADA] DEBUG HTML 0-500:`, fetchPage(art.url).substring(0, 500));
+          }
+          return t;
+        });
+
+        if (testo.length < 50) {
+          artReport.azioni.push("Testo non estratto — skippato");
+          report.push(artReport);
+          continue;
+        }
+
+        const categoriaRC = mapCategoriaToRCRanking(art.categoria);
+        const classificaRC = await step.run(`fci-strada-ranking-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
+          try {
+            const res = await axios.get(
+              `${RC_BASE}/api/athletes-ranking?season=${new Date().getFullYear()}&category=${categoriaRC}&limit=20`
+            );
+            const ranking: any[] = res.data?.athletes ?? res.data ?? [];
+            return ranking.slice(0, 20).filter((a: any) => {
+              const cognome = (a.lastName ?? "").toLowerCase();
+              return cognome.length >= 3 && testo.toLowerCase().includes(cognome);
+            }).slice(0, 5).map((a: any) => ({
+              name: `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim(),
+              posizione: ranking.indexOf(a) + 1,
+              punti: a.points ?? a.totalPoints ?? null,
+              profileUrl: a.slug ? `${RC_BASE}/giovani/atleta/${a.slug}` : null,
+            }));
+          } catch { return []; }
+        });
+
+        const articoloIT = await step.run(`fci-strada-genera-it-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
+          const anno = new Date().getFullYear();
+          const urlClassifica = `${RC_BASE}/giovani`;
+          const rcInfo = classificaRC.length > 0
+            ? `Atleti presenti nella Classifica RC Giovani ${anno}:
+` +
+              classificaRC.map((a: any) => `- ${a.name}: #${a.posizione} RC (${a.punti ?? "?"} pt)`).join("
+")
+            : `Nessun atleta trovato nella classifica RC Giovani ${anno}.`;
+
+          const result = await generateObject({
+            model: google("gemini-2.5-flash-lite"),
+            prompt: `Sei un redattore sportivo specializzato in ciclismo giovanile italiano per RadioCiclismo.com.
+
+════════════════════════════════
+REGOLE ASSOLUTE
+════════════════════════════════
+1. Riscrivi l'articolo con stile RC usando SOLO i fatti presenti nel testo sorgente.
+2. Zero invenzioni. MAI usare placeholder. MAI frasi di scusa come "dati non disponibili".
+3. Includi SEMPRE il link ${urlClassifica} nel corpo.
+4. FALLBACK: se il testo è scarso, usa stile FLASH NEWS.
+
+════════════════════════════════
+TESTO SORGENTE (federciclismo.it/strada)
+════════════════════════════════
+Titolo originale: ${art.titolo}
+Categoria: ${art.categoria}
+Data: ${art.data}
+URL: ${art.url}
+
+Testo:
+${testo}
+
+════════════════════════════════
+CLASSIFICA RC GIOVANI ${anno}
+════════════════════════════════
+${rcInfo}
+
+════════════════════════════════
+STRUTTURA
+════════════════════════════════
+1. APERTURA: fatto principale (chi, cosa, dove).
+2. DETTAGLIO: sviluppo dai dati reali del testo.
+3. CLASSIFICA RC GIOVANI: posizione degli atleti citati.
+   Chiudi con: "Segui la classifica aggiornata su ${urlClassifica}"
+4. CHIUSURA: significato per la stagione ${anno}.
+
+Lunghezza: 180-260 parole. Titolo: informativo con nome gara/atleta.
+Slug: kebab-case. Tags: 3 tag specifici.`,
+            schema: z.object({
+              titolo: z.string(),
+              excerpt: z.string(),
+              contenuto: z.string(),
+              metaDescription: z.string(),
+              slug: z.string(),
+              tags: z.array(z.string()),
+              versioneSocial: z.string(),
+            }),
+          });
+          return result.object;
+        });
+
+        const articoloEN = await step.run(`fci-strada-genera-en-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
+          const result = await generateObject({
+            model: google("gemini-2.5-flash-lite"),
+            prompt: `You are a cycling journalist for RadioCiclismo.com.
+Translate this Italian article to professional English. Translate the ENTIRE content — do NOT summarize or omit sentences. Keep all facts identical.
+
+Italian title: ${articoloIT.titolo}
+Italian content: ${articoloIT.contenuto}`,
+            schema: z.object({
+              titolo: z.string(),
+              excerpt: z.string(),
+              contenuto: z.string(),
+            }),
+          });
+          return result.object;
+        });
+
+        const pub = await step.run(`fci-strada-pubblica-${encodeURIComponent(art.url).substring(0, 40)}`, async () => {
+          if (!articoloIT.titolo || !articoloIT.contenuto || !articoloIT.slug) {
+            throw new Error(`Dati articolo incompleti per "${art.titolo}"`);
+          }
+          const body = {
+            slug: articoloIT.slug.toLowerCase().trim(),
+            title: articoloIT.titolo,
+            excerpt: articoloIT.excerpt,
+            content: articoloIT.contenuto,
+            titleEn: articoloEN.titolo || articoloIT.titolo,
+            excerptEn: articoloEN.excerpt || articoloIT.excerpt,
+            contentEn: articoloEN.contenuto || articoloIT.contenuto,
+            author: "AI Agent",
+            publishAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            hashtags: articoloIT.tags || [],
+            published: false,
+          };
+          try {
+            const res = await axios.post(
+              `${RC_BASE}/api/admin/articles`,
+              body,
+              { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
+            );
+            console.log("[FCI STRADA PUBBLICA] ✅ ID:", res.data?.id);
+            return { id: res.data?.id, success: true };
+          } catch (err: any) {
+            console.error("[FCI STRADA PUBBLICA] ❌", err.response?.status, JSON.stringify(err.response?.data));
+            throw new Error(`RC ha risposto ${err.response?.status}: ${JSON.stringify(err.response?.data)}`);
+          }
+        });
+
+        artReport.azioni.push(`✅ Articolo creato — ID: ${pub.id}`);
+        artReport.azioni.push(`Atleti RC trovati: ${classificaRC.length}`);
+
+      } catch (err: any) {
+        artReport.azioni.push(`❌ ERRORE: ${err.message}`);
+      }
+
+      report.push(artReport);
+    }
+
     return {
       success: true,
       gareProcessate: gareOggi.length,
       articoliBiciPro: articoliBiciPro.length,
+      articoliFciStrada: articoliFciStrada.length,
       report,
     };
   }
