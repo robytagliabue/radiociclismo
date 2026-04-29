@@ -1,14 +1,8 @@
-import { inngest } from "../client.js"; // Esce in src per prendere il client
-import { cyclingDispatchFn, cyclingProcessRaceFn } from "./cycling-pcs.js"; // ./ perché sono in mastra
-import { fciWorkflowFn } from "./cycling-fci.js"; // ./ perché sono in mastra
+import { inngest } from "../client.js";
+import { cyclingDispatchFn, cyclingProcessRaceFn } from "./cycling-pcs.js";
+import { fciWorkflowFn } from "./cycling-fci.js";
 
-export const allInngestFunctions = [
-  cyclingDispatchFn,
-  cyclingProcessRaceFn,
-  fciWorkflowFn,
-  masterCron // Ricordati di aggiungere masterCron qui se vuoi che sia registrato!
-];
-// CRON UNICO: Evitiamo sovrapposizioni per non esaurire i 5 slot di concurrency
+// 1. DEFINISCI PRIMA IL CRON (Spostalo sopra l'array)
 export const masterCron = inngest.createFunction(
   { id: "master-cron-radiociclismo", name: "RadioCiclismo Master Cron" },
   { cron: "0 18 * * *" }, 
@@ -23,3 +17,11 @@ export const masterCron = inngest.createFunction(
     await step.sendEvent("start-fci", { name: "cycling/generate.fci.article" });
   }
 );
+
+// 2. ORA PUOI ESPORTARE L'ARRAY (Dopo che tutto è stato definito)
+export const allInngestFunctions = [
+  cyclingDispatchFn,
+  cyclingProcessRaceFn,
+  fciWorkflowFn,
+  masterCron // Ora masterCron è stato già inizializzato e non darà errore
+];
