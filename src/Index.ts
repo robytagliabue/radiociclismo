@@ -1,38 +1,35 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { Inngest } from "inngest";
+import { inngest } from "./client.js"; // IMPORTANTE: Usa il client centralizzato
 import { serve as inngestServe } from "inngest/hono";
-import { cyclingWorkflowFn } from "./cyclingWorkflow.js";
-import { fciWorkflowFn } from "./fciWorkflow.js";
+
+// Importa tutte le funzioni dai nuovi file
+import { cyclingDispatchFn, cyclingProcessRaceFn } from "./cycling-pcs.js";
+import { fciWorkflowFn } from "./fci-workflow.js";
+import { masterCron } from "./inngest-main.js"; // Non dimenticare il Direttore d'Orchestra!
 
 const app = new Hono();
 
-const inngest = new Inngest({
-  id: "radiociclismo-v6-core",
-  eventKey: process.env.INNGEST_EVENT_KEY,
-  signingKey: process.env.INNGEST_SIGNING_KEY,
-});
-
-const pingFn = inngest.createFunction(
-  { id: "ping-v6", name: "Ping V6" },
-  { event: "app/ping" },
-  async ({ event, step }) => {
-    return { message: "Pong! RadioCiclismo operativo" };
-  }
-);
-
+// Handler Inngest per Hono
 const inngestHandler = inngestServe({
   client: inngest,
-  functions: [pingFn, cyclingWorkflowFn, fciWorkflowFn],
+  functions: [
+    cyclingDispatchFn,
+    cyclingProcessRaceFn,
+    fciWorkflowFn,
+    masterCron, // Registra il Cron qui!
+  ],
 });
 
+// Endpoint per Inngest
 app.on(["GET", "POST", "PUT"], "/api/inngest", (c) => inngestHandler(c));
 
+// Debug e Health Check
 app.get("/debug", (c) => {
   return c.json({
     INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY ? "presente" : "mancante",
     INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY ? "presente" : "mancante",
-    PORT: process.env.PORT ?? "mancante",
+    PORT: process.env.PORT ?? "8080 (default)",
   });
 });
 
@@ -41,9 +38,19 @@ app.get("/", (c) => {
     status: "online",
     service: "RadioCiclismo AI Journalist",
     version: "v6",
-    workflows: ["cycling/generate.article", "cycling/generate.fci.article"],
+    active_functions: [
+      "pcs-international",
+      "fci-national",
+      "master-scheduler"
+    ],
   });
 });
 
 const port = Number(process.env.PORT) || 8080;
-serve({ fetch: app.fetch, port, hostname: "0.0.0.0" });
+console.log(`🚀 RadioCiclismo v6 in ascolto sulla porta ${port}`);
+
+serve({ 
+  fetch: app.fetch, 
+  port, 
+  hostname: "0.0.0.0" 
+});
