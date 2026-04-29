@@ -7,9 +7,9 @@
     "start": "tsx src/mastra/server.ts",
     "build": "echo 'Build OK'"
   },
-"dependencies": {
-    "@ai-sdk/anthropic": "^1.0.0",
-  "@mastra/core": "latest",
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.1.0",
+    "@mastra/core": "latest",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.10",
     "inngest": "^3.29.0",
