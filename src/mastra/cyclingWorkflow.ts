@@ -6,6 +6,34 @@ import axios from "axios";
 import FormData from "form-data";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
+import pg from "pg";
+
+const { Pool } = pg;
+const db = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Helper DB: check se articolo già pubblicato
+async function isAlreadyPublished(raceName: string): Promise<boolean> {
+  const res = await db.query(
+    "SELECT id FROM published_articles WHERE race_name = $1 LIMIT 1",
+    [raceName]
+  );
+  return res.rowCount! > 0;
+}
+
+// Helper DB: salva articolo pubblicato
+async function savePublishedArticle(params: {
+  slug: string;
+  titleIt: string;
+  raceName: string;
+  sourceUrl?: string;
+}): Promise<void> {
+  await db.query(
+    `INSERT INTO published_articles (slug, title_it, race_name, source_url)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (slug) DO NOTHING`,
+    [params.slug, params.titleIt, params.raceName, params.sourceUrl ?? ""]
+  );
+}
 
 const RC_BASE = "https://radiociclismo.com";
 const PCS_BASE = "https://www.procyclingstats.com";
@@ -218,14 +246,9 @@ export const cyclingWorkflowFn = inngest.createFunction(
 
       try {
         const articoloEsiste = await step.run(`check-articolo-${gara.nome}`, async () => {
-          const res = await axios.get(
-            `${RC_BASE}/api/admin/articles?search=${encodeURIComponent(gara.nome)}&limit=5`,
-            { headers: { Cookie: sessionCookie } }
-          );
-          const articles = res.data?.articles ?? [];
-          return articles.some((a: any) =>
-            a.title?.toLowerCase().includes(gara.nome.toLowerCase().substring(0, 15))
-          );
+          const gia = await isAlreadyPublished(gara.nome);
+          console.log(`[CHECK] "${gara.nome}" già nel DB: ${gia}`);
+          return gia;
         });
 
         if (articoloEsiste) {
@@ -393,6 +416,14 @@ DO NOT invent anything. Keep all facts identical.`,
                 { headers: { "Content-Type": "application/json", Cookie: sessionCookie } }
               );
               console.log("[PUBBLICA] Risposta:", res.status, JSON.stringify(res.data));
+              // Salva nel DB per deduplicazione futura
+              await savePublishedArticle({
+                slug: body.slug,
+                titleIt: body.title,
+                raceName: gara.nome,
+                sourceUrl: `${PCS_BASE}${gara.url}`,
+              });
+              console.log("[PUBBLICA] Salvato in published_articles:", body.slug);
               return { id: res.data?.id, success: true };
             } catch (err: any) {
               console.error("[PUBBLICA] Errore status:", err.response?.status);
