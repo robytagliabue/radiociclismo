@@ -2,12 +2,12 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serve as inngestServe } from "inngest/hono";
 
-// --- CORREZIONE PERCORSI ---
-// Usiamo "../" perché i file sono nella cartella superiore (src)
+// 1. Questi sono fuori in "src", quindi servono i due punti (../)
 import { inngest } from "../client.js"; 
 import { allInngestFunctions } from "../inngest.js"; 
-import { ensurePublishedArticlesTable, pool } from "../db.js";
-// ---------------------------
+
+// 2. Questo è "qui" con server.ts in "src/mastra/", quindi serve un punto solo (./)
+import { ensurePublishedArticlesTable, pool } from "./db.js";
 
 const app = new Hono();
 
