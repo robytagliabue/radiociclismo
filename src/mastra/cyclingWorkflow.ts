@@ -269,9 +269,24 @@ export const cyclingWorkflowFn = inngest.createFunction(
         }
 
         const risultatiPCS = await step.run(`scraping-risultati-${gara.nome}`, async () => {
-          const url = `${PCS_BASE}${gara.url}`;
-          const html = await fetchPage(url);
-          if (html.startsWith("ERRORE")) return null;
+          // Per gare a tappe prova prima /result, poi fallback alla pagina base
+          const baseUrl = `${PCS_BASE}${gara.url}`;
+          const urlsToTry = [
+            baseUrl.endsWith("/result") ? baseUrl : `${baseUrl}/result`,
+            baseUrl,
+          ];
+
+          let html = "";
+          let url = baseUrl;
+          for (const u of urlsToTry) {
+            const h = await fetchPage(u);
+            if (!h.startsWith("ERRORE") && h.length > 1000) {
+              html = h;
+              url = u;
+              break;
+            }
+          }
+          if (!html) return null;
 
           const $ = cheerio.load(html);
           const classificaArrivo: any[] = [];
@@ -332,9 +347,9 @@ export const cyclingWorkflowFn = inngest.createFunction(
             console.log("[RISULTATI] Top 3:", classificaArrivo.slice(0, 3).map(r => r.nome).join(", "));
           }
 
-          // Validazione minima: meno di 5 corridori = gara non conclusa
+          // Validazione minima: meno di 5 corridori = gara non conclusa o in corso
           if (classificaArrivo.length < 5) {
-            console.log(`[RISULTATI] ⛔ Solo ${classificaArrivo.length} corridori validi — gara non conclusa, skip`);
+            console.log(`[RISULTATI] ⏭️ Solo ${classificaArrivo.length} corridori validi — gara in corso o non conclusa, skip normale`);
             return null;
           }
 
@@ -342,7 +357,7 @@ export const cyclingWorkflowFn = inngest.createFunction(
         });
 
         if (!risultatiPCS) {
-          garaReport.azioni.push("Scraping PCS fallito — skippata");
+          garaReport.azioni.push("Gara in corso o risultati non ancora disponibili — skippata");
           report.push(garaReport);
           continue;
         }
