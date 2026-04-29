@@ -5,9 +5,7 @@ import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
 
-// --- UTILS ---
-const slugify = (text: string) => 
-  text.toString().toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
+const slugify = (text: string) => text.toString().toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
 
 const STILI = [
   { name: "Tecnico", prompt: "Analizza i distacchi e la tattica delle squadre." },
@@ -15,13 +13,11 @@ const STILI = [
   { name: "Cronaca", prompt: "Fornisci un resoconto asciutto e preciso dei fatti." }
 ];
 
-// --- 1. DISPATCHER ---
 export const cyclingDispatchFn = inngest.createFunction(
   { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
   { event: "cycling/generate.article" },
   async ({ step }) => {
     const gare = [{ nome: "Esempio Gara", id: "123" }]; 
-
     for (const [index, gara] of gare.entries()) {
       await step.sendEvent(`process-race-${index}`, {
         name: "cycling/process.single.race",
@@ -32,7 +28,6 @@ export const cyclingDispatchFn = inngest.createFunction(
   }
 );
 
-// --- 2. WORKER ---
 export const cyclingProcessRaceFn = inngest.createFunction(
   { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
   { event: "cycling/process.single.race" },
@@ -40,46 +35,36 @@ export const cyclingProcessRaceFn = inngest.createFunction(
     const { gara, index } = event.data;
     const raceSlug = slugify(gara.nome);
     const dati = { isComplete: true, classifica: [{ pos: 1, nome: "Pogačar", team: "UAE" }] };
-    
     if (!dati.isComplete) return { status: "skipped", reason: "insufficient_data" };
+
     const stile = STILI[index % STILI.length];
 
-    // 3. GENERAZIONE ARTICOLO IT
+    // --- SOLUZIONE: Passiamo i messaggi come array fuori dall'oggetto se generateLegacy lo richiede così ---
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
-      // OBBLIGATORIO: generateLegacy + messages con role: "user"
-      const res = await cyclingAgent.generateLegacy({
-        messages: [
-          {
-            role: "user",
-            content: `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
-            Vincitore: ${dati.classifica[0].nome} (${dati.classifica[0].team}). 
-            ${stile.prompt} 
-            Rispondi in formato JSON con i campi: titolo, contenuto, excerpt, slug, tags.`
-          }
-        ]
-      });
+      const res = await cyclingAgent.generateLegacy([
+        {
+          role: "user",
+          content: `Sei un giornalista di RadioCiclismo. Scrivi un articolo sulla gara: ${gara.nome}. 
+          Vincitore: ${dati.classifica[0].nome}. ${stile.prompt} 
+          Ritorna JSON con: titolo, contenuto, excerpt, slug, tags.`
+        }
+      ] as any); // Casting per forzare l'array di messaggi
       
-      // Estraiamo l'oggetto (Mastra Legacy lo mette in .object o restituisce l'output strutturato)
       return (res as any).object || res;
     });
 
-    // 4. TRADUZIONE EN
     const articoloEN = await step.run(`gen-en-${raceSlug}`, async () => {
-      const res = await cyclingAgent.generateLegacy({
-        messages: [
-          {
-            role: "user",
-            content: `Translate this article into English: ${JSON.stringify(articoloIT)}. 
-            Return JSON with: titolo, contenuto, excerpt.`
-          }
-        ]
-      });
+      const res = await cyclingAgent.generateLegacy([
+        {
+          role: "user",
+          content: `Translate to English: ${JSON.stringify(articoloIT)}. Return JSON.`
+        }
+      ] as any);
       return (res as any).object || res;
     });
 
-    // 5. PUBBLICAZIONE
     await step.run(`publish-${raceSlug}`, async () => {
-      console.log(`🚀 Articolo generato: ${articoloIT.titolo}`);
+      console.log(`🚀 Pubblicato: ${articoloIT.titolo}`);
       return { success: true };
     });
 
