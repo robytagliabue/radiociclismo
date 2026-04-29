@@ -1,4 +1,4 @@
-import { inngest, FCI_EVENT } from "./client.js";
+import { inngest, FCI_EVENT } from "../client.js";
 import { cyclingAgent } from "./cyclingAgent.js"; // Importiamo l'Agente Mastra
 import axios from "axios";
 import { execSync } from "child_process";
