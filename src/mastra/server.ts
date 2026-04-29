@@ -2,23 +2,20 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { serve as inngestServe } from "inngest/hono";
 
-// 1. Questi sono FUORI nella cartella superiore (src/)
-// Usiamo "../" per risalire di un livello
+// 1. Il client è fuori in src/
 import { inngest } from "../client.js"; 
-import { allInngestFunctions } from "../inngest.js"; 
 
-// 2. Questo è DENTRO la stessa cartella (src/mastra/)
-// Usiamo "./" perché il file è nella stessa posizione di server.ts
-import { ensurePublishedArticlesTable, pool } from "./db.js";
+// 2. Il file inngest.ts è "qui" in src/mastra/
+import { allInngestFunctions, masterCron } from "./inngest.js"; 
+
+// 3. Il db è "qui" in src/mastra/
+import { ensurePublishedArticlesTable } from "./db.js";
 
 const app = new Hono();
 
-// ... resto del codice (Configurazione Inngest e Rotte) ...
-
-// Configurazione Inngest
 const inngestHandler = inngestServe({
   client: inngest,
-  functions: allInngestFunctions,
+  functions: [...allInngestFunctions, masterCron], // Assicuriamoci di passare tutto
 });
 
 // Endpoint API
