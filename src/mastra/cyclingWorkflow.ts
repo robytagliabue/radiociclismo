@@ -528,6 +528,12 @@ Italian content: ${articoloIT.contenuto}`,
       report.push(garaReport);
     }
 
+    // Trigger automatico workflow FCI dopo PCS
+    await step.run("trigger-fci-workflow", async () => {
+      await inngest.send({ name: "cycling/generate.fci.article", data: {} });
+      console.log("[CHAIN] ✅ Workflow FCI triggerato");
+    });
+
     return { success: true, gaareProcessate: gareOggi.length, report };
   }
 );
