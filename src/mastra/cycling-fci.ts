@@ -263,33 +263,41 @@ async function arricchisciConClassificaRC(
     const res = await axios.get(
       `${RC_BASE}/api/athletes-ranking?season=${new Date().getFullYear()}&category=${categoriaRC}&limit=100`
     );
-    ranking = res.data?.athletes ?? res.data ?? [];
+    // API restituisce array diretto o wrapped
+    ranking = Array.isArray(res.data) ? res.data : (res.data?.athletes ?? res.data ?? []);
   } catch {
     console.log(`[FCI] Classifica RC non disponibile per ${categoriaRC}`);
   }
 
   return riders.slice(0, 10).map((rider) => {
     // FCI usa "COGNOME NOME" tutto maiuscolo
+    // es. "BASSO DAVIDE" → cognome="basso", nome="davide"
     const parts = rider.name.toLowerCase().trim().split(" ");
     const cognome = parts[0] ?? "";
     const nome = parts.slice(1).join(" ");
 
     const match = ranking.find((a: any) => {
-      const aCognome = (a.lastName ?? a.surname ?? "").toLowerCase();
-      const aNome = (a.firstName ?? a.name ?? "").toLowerCase();
+      // API RC usa snake_case: last_name (cognome), first_name (nome)
+      const aCognome = (a.last_name ?? "").toLowerCase();
+      const aNome = (a.first_name ?? "").toLowerCase();
       return (
-        aCognome.includes(cognome) &&
-        (nome ? aNome.includes(nome.split(" ")[0]) : true)
-      );
+        aCognome === cognome ||
+        aCognome.includes(cognome) ||
+        cognome.includes(aCognome)
+      ) && (nome ? aNome.includes(nome.split(" ")[0]) : true);
     });
 
     const posizione = match ? ranking.indexOf(match) + 1 : null;
+    const fullName = match
+      ? `${match.first_name ?? ""} ${match.last_name ?? ""}`.trim()
+      : rider.name;
+
     return {
-      name: rider.name,
+      name: fullName || rider.name,
       team: rider.team,
       posizione,
-      punti: match?.points ?? match?.totalPoints ?? null,
-      profileUrl: match?.slug ? `${RC_BASE}/giovani/atleta/${match.slug}` : null,
+      punti: match?.total_points ?? null,
+      profileUrl: match?.slug ? `${RC_BASE}/atleti/${match.slug}` : null,
     };
   });
 }
@@ -305,7 +313,7 @@ async function cercaAtletiInTesto(
     const res = await axios.get(
       `${RC_BASE}/api/athletes-ranking?season=${new Date().getFullYear()}&category=${categoriaRC}&limit=100`
     );
-    ranking = res.data?.athletes ?? res.data ?? [];
+    ranking = Array.isArray(res.data) ? res.data : (res.data?.athletes ?? res.data ?? []);
   } catch {
     return [];
   }
@@ -314,16 +322,17 @@ async function cercaAtletiInTesto(
   return ranking
     .slice(0, 100)
     .filter((a: any) => {
-      const cognome = (a.lastName ?? "").toLowerCase();
+      // API RC usa last_name per il cognome
+      const cognome = (a.last_name ?? "").toLowerCase();
       return cognome.length >= 3 && testoLower.includes(cognome);
     })
     .slice(0, 5)
     .map((a: any) => ({
-      name: `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim(),
-      team: a.team ?? "",
+      name: `${a.first_name ?? ""} ${a.last_name ?? ""}`.trim(),
+      team: a.team_name ?? "",
       posizione: ranking.indexOf(a) + 1,
-      punti: a.points ?? a.totalPoints ?? null,
-      profileUrl: a.slug ? `${RC_BASE}/giovani/atleta/${a.slug}` : null,
+      punti: a.total_points ?? null,
+      profileUrl: a.slug ? `${RC_BASE}/atleti/${a.slug}` : null,
     }));
 }
 
