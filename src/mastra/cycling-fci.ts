@@ -250,28 +250,123 @@ Rispondi SOLO con il JSON richiesto:
 }
 
 // ─── FASE 2a: Incrocio con API RC races ───────────────────────────────────────
-// Verifica se la gara è già censita in RC e se il CSV worker ha già caricato risultati.
-async function incrociaCongRC(
-  nomeGara: string,
-  cookie: string
-): Promise<{ found: boolean; raceId?: number; hasResults: boolean }> {
+// L'API restituisce un array piatto (no paginazione, no wrapper).
+// Strategia: prima match deterministico per fciRaceId (se disponibile),
+// poi fuzzy match sul titolo (Levenshtein semplificato).
+// "hasResults" = state === "archived" (gara conclusa con risultati caricati).
+
+interface RCRace {
+  id: number;
+  slug: string;
+  title: string;
+  category: string;
+  startDate: string;
+  state: "upcoming" | "in_progress" | "archived";
+  status: "pending" | "approved" | "rejected";
+  fciRaceId: string | null;
+  uciRaceId: string | null;
+  region: string | null;
+}
+
+// Distanza di Levenshtein semplificata per fuzzy match titoli
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  );
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1]
+        ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+function normalizzaTitolo(t: string): string {
+  return t.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Cache in-memory per evitare chiamate ripetute nella stessa esecuzione
+let rcRacesCache: RCRace[] | null = null;
+
+async function fetchRCRaces(cookie: string): Promise<RCRace[]> {
+  if (rcRacesCache) return rcRacesCache;
   try {
     const res = await axios.get(
-      `${RC_BASE}/api/admin/races?search=${encodeURIComponent(nomeGara.substring(0, 40))}&limit=5`,
+      `${RC_BASE}/api/admin/races?status=approved`,
       { headers: { Cookie: cookie } }
     );
-    const races = res.data?.races ?? res.data ?? [];
-    if (!races.length) return { found: false, hasResults: false };
-
-    const race = races[0];
-    const hasResults =
-      (race.resultsCount ?? race.results_count ?? 0) > 0 ||
-      (Array.isArray(race.results) && race.results.length > 0);
-
-    return { found: true, raceId: race.id, hasResults };
-  } catch {
-    return { found: false, hasResults: false };
+    rcRacesCache = Array.isArray(res.data) ? res.data : [];
+    console.log(`[RC RACES] Caricate ${rcRacesCache.length} gare approvate`);
+    return rcRacesCache;
+  } catch (e: any) {
+    console.error("[RC RACES] Fetch fallito:", e.message);
+    return [];
   }
+}
+
+async function incrociaCongRC(
+  nomeGara: string,
+  cookie: string,
+  fciRaceId?: string | null
+): Promise<{ found: boolean; raceId?: number; slug?: string; hasResults: boolean; race?: RCRace }> {
+  const races = await fetchRCRaces(cookie);
+  if (!races.length) return { found: false, hasResults: false };
+
+  // 1. Match deterministico per fciRaceId (più affidabile)
+  if (fciRaceId) {
+    const exact = races.find(r => r.fciRaceId === fciRaceId);
+    if (exact) {
+      console.log(`[RC MATCH] Deterministico fciRaceId="${fciRaceId}" → "${exact.title}"`);
+      return {
+        found: true,
+        raceId: exact.id,
+        slug: exact.slug,
+        hasResults: exact.state === "archived",
+        race: exact,
+      };
+    }
+  }
+
+  // 2. Fuzzy match sul titolo normalizzato
+  const nomeNorm = normalizzaTitolo(nomeGara);
+  let bestMatch: RCRace | null = null;
+  let bestScore = Infinity;
+
+  for (const race of races) {
+    const raceNorm = normalizzaTitolo(race.title);
+    // Shortcut: se uno contiene l'altro, priorità massima
+    if (raceNorm.includes(nomeNorm) || nomeNorm.includes(raceNorm)) {
+      bestMatch = race;
+      bestScore = 0;
+      break;
+    }
+    const dist = levenshtein(nomeNorm, raceNorm);
+    // Score relativo alla lunghezza (tolleranza ~30%)
+    const score = dist / Math.max(nomeNorm.length, raceNorm.length);
+    if (score < bestScore) {
+      bestScore = score;
+      bestMatch = race;
+    }
+  }
+
+  // Soglia: accetta match solo se similarità > 70%
+  if (bestMatch && bestScore < 0.3) {
+    console.log(`[RC MATCH] Fuzzy "${nomeGara}" → "${bestMatch.title}" (score: ${bestScore.toFixed(2)})`);
+    return {
+      found: true,
+      raceId: bestMatch.id,
+      slug: bestMatch.slug,
+      hasResults: bestMatch.state === "archived",
+      race: bestMatch,
+    };
+  }
+
+  console.log(`[RC MATCH] Nessun match per "${nomeGara}" (miglior score: ${bestScore.toFixed(2)})`);
+  return { found: false, hasResults: false };
 }
 
 // ─── FASE 2b: Arricchisci top 10 con posizione in Classifica RC Giovani ───────
@@ -649,6 +744,9 @@ export const fciWorkflowFn = inngest.createFunction(
       if (!cookie) throw new Error("Login RC fallito — cookie vuoto");
       return cookie;
     });
+
+    // Reset cache gare RC — ogni run Inngest e fresh
+    rcRacesCache = null;
 
     // ════════════════════════════════════════════════════════════════════════
     // PIPELINE A — Gare FCI dal DB (classifiche già caricate dal CSV worker)
