@@ -46,31 +46,40 @@ export const fciWorkflowFn = inngest.createFunction(
         const htmlArt = fetchPage(art.url);
         const corpo = cheerio.load(htmlArt)("article").text().substring(0, 2500);
 
-        let ranking = "Dati ranking non disponibili.";
+        // Recupero Ranking per contesto
+        let ranking = "Dati non disponibili.";
         try {
           const r = await axios.get(`${RC_BASE}/api/athletes-ranking?category=under23&limit=5`);
           ranking = JSON.stringify(r.data);
         } catch {}
 
         const res = await (cyclingAgent as any).generateLegacy(
-          `Rielabora per RadioCiclismo: ${art.titolo}. Testo: ${corpo}. 
-          Contesto Ranking RadioCiclismo: ${ranking}.
-          RITORNA SOLO JSON: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`
+          `Rielabora questa notizia per RadioCiclismo: ${art.titolo}. 
+          Testo: ${corpo}. Ranking attuali: ${ranking}.
+          RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
         );
 
-        const articolo = res?.object || res;
+        const articoloAI = res?.object || res;
         
-        if (articolo && sessionCookie) {
-          await axios.post(`${RC_BASE}/api/admin/articles`, {
-            title: articolo.titolo,
-            content: articolo.contenuto,
-            excerpt: articolo.excerpt,
-            slug: articolo.slug || art.titolo.toLowerCase().replace(/\s+/g, '-'),
+        if (articoloAI && sessionCookie) {
+          const payload = {
+            slug: art.titolo.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, ''),
+            title: articoloAI.titolo,
+            titleEn: null,
+            excerpt: articoloAI.excerpt,
+            excerptEn: null,
+            content: articoloAI.contenuto,
+            contentEn: null,
+            coverImageUrl: null,
+            images: [],
+            hashtags: articoloAI.tags || [],
             author: "RadioCiclismo AI",
-            category: "giovani",
-            published: false,
-            hashtags: articolo.tags
-          }, { headers: { Cookie: sessionCookie } });
+            publishAt: new Date().toISOString()
+          };
+
+          await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
+            headers: { Cookie: sessionCookie }
+          });
         }
       });
     }
