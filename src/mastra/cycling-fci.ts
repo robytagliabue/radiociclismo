@@ -46,33 +46,30 @@ export const fciWorkflowFn = inngest.createFunction(
         const htmlArt = fetchPage(art.url);
         const corpo = cheerio.load(htmlArt)("article").text().substring(0, 2500);
 
-        // Recupero Ranking per contesto
-        let ranking = "Dati non disponibili.";
+        let ranking = "Dati ranking non disponibili.";
         try {
           const r = await axios.get(`${RC_BASE}/api/athletes-ranking?category=under23&limit=5`);
           ranking = JSON.stringify(r.data);
         } catch {}
 
         const res = await (cyclingAgent as any).generateLegacy(
-          `Rielabora questa notizia per RadioCiclismo: ${art.titolo}. 
-          Testo: ${corpo}. Ranking attuali: ${ranking}.
-          RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+          `Rielabora per RadioCiclismo: ${art.titolo}. Testo: ${corpo}. Contest Ranking: ${ranking}. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
         );
 
-        const articoloAI = res?.object || res;
+        const articolo = res?.object || res;
         
-        if (articoloAI && sessionCookie) {
+        if (articolo && sessionCookie) {
           const payload = {
             slug: art.titolo.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, ''),
-            title: articoloAI.titolo,
+            title: articolo.titolo,
             titleEn: null,
-            excerpt: articoloAI.excerpt,
+            excerpt: articolo.excerpt,
             excerptEn: null,
-            content: articoloAI.contenuto,
+            content: articolo.contenuto,
             contentEn: null,
             coverImageUrl: null,
             images: [],
-            hashtags: articoloAI.tags || [],
+            hashtags: articolo.tags || [],
             author: "RadioCiclismo AI",
             publishAt: new Date().toISOString()
           };
