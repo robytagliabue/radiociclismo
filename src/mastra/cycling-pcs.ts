@@ -113,7 +113,7 @@ export const cyclingProcessRaceFn = inngest.createFunction(
         title: articoloAI.titolo,
         content: articoloAI.contenuto,
         excerpt: articoloAI.excerpt || "",
-        author: "RadioCiclismo AI",
+        author: "RadioCiclismo Reporter",
         publishAt: new Date(Date.now() + 7200000).toISOString(), // +2 ore
         hashtags: articoloAI.tags || ["#ciclismo"]
       }, { headers: { Cookie: sessionCookie } });
