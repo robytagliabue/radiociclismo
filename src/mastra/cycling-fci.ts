@@ -6,22 +6,17 @@ import * as cheerio from "cheerio";
 
 const RC_BASE = "https://radiociclismo.com";
 
-// Helper per lo slug (URL safe)
 const slugify = (text: string) => 
   text.toString().toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^\w-]+/g, '')
     .replace(/--+/g, '-');
 
-// Funzione di scraping con User-Agent reale per evitare blocchi dai siti istituzionali
 function fetchPage(url: string): string {
   try {
-    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" --compressed "${url}"`;
+    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0" --compressed "${url}"`;
     return execSync(cmd, { maxBuffer: 15 * 1024 * 1024 }).toString();
-  } catch (e) { 
-    console.error(`Errore nel fetch di ${url}:`, e);
-    return ""; 
-  }
+  } catch (e) { return ""; }
 }
 
 async function getSessionCookie(): Promise<string> {
@@ -57,8 +52,8 @@ export const fciWorkflowFn = inngest.createFunction(
         $(container).each((i, el) => {
           if (i < 2) {
             const titolo = $(el).find("h2").text().trim() || $(el).text().trim();
-            let link = $(el).find("a").attr("href") || $(el).attr("href");
-            if (link && titolo.length > 10) {
+            const link = $(el).find("a").attr("href") || $(el).attr("href");
+            if (link && titolo.length > 15) {
               items.push({ 
                 titolo, 
                 url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`, 
@@ -74,52 +69,41 @@ export const fciWorkflowFn = inngest.createFunction(
     for (const art of newsArticoli) {
       await step.run(`process-${art.titolo.substring(0,10)}`, async () => {
         const htmlArt = fetchPage(art.url);
-        const corpo = cheerio.load(htmlArt)("article, .article-content").text().substring(0, 2500);
+        const corpo = cheerio.load(htmlArt)("article, .article-content").text().trim();
 
-        // Chiamata all'agente con istruzioni rigorose
+        // Salto immediato se il testo sorgente è povero
+        if (corpo.length < 300) return { skipped: "Source too short" };
+
         const res = await (cyclingAgent as any).generateLegacy(
-          `Sei la redazione di RadioCiclismo. Rielabora questa notizia da ${art.fonte}: ${art.titolo}. 
-          Testo sorgente: ${corpo}. 
-          IMPORTANTE: Produci un articolo professionale e completo. Evita bozze brevi.
+          `Crea un articolo per RadioCiclismo da: ${art.titolo}. Testo: ${corpo}.
+          Se non puoi costruire un pezzo giornalistico valido, scrivi "SKIP".
           RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
         );
 
         const articoloAI = res?.object || res;
         
-        // Verifica integrità contenuto (minimo 150 caratteri per evitare articoli "vuoti")
-        if (articoloAI && articoloAI.contenuto && articoloAI.contenuto.length > 150 && sessionCookie) {
-          
-          // SCHEDULAZIONE: Ora attuale + 2 ore
+        if (articoloAI && articoloAI !== "SKIP" && articoloAI.contenuto?.length > 250 && sessionCookie) {
           const scheduledDate = new Date();
-          scheduledDate.setHours(scheduledDate.getDate() + 2);
+          scheduledDate.setHours(scheduledDate.getHours() + 2);
 
           const payload = {
-            slug: `giovanili-${Date.now()}-${slugify(art.titolo)}`,
-            title: articoloAI.titolo || art.titolo,
-            titleEn: "",
-            excerpt: articoloAI.excerpt || "",
-            excerptEn: "",
+            slug: slugify(art.titolo),
+            title: articoloAI.titolo,
             content: articoloAI.contenuto,
-            contentEn: "",
-            coverImageUrl: "",
-            images: [],
-            hashtags: [...(articoloAI.tags || []), "#giovanili", "#ciclismo"],
+            excerpt: articoloAI.excerpt,
             author: "RadioCiclismo AI",
-            publishAt: scheduledDate.toISOString() // Pubblicazione programmata
+            publishAt: scheduledDate.toISOString(),
+            hashtags: [...(articoloAI.tags || []), "#giovanili"],
+            titleEn: "", excerptEn: "", contentEn: "", coverImageUrl: "", images: []
           };
 
           try {
             await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-              headers: { 
-                Cookie: sessionCookie, 
-                "Content-Type": "application/json" 
-              }
+              headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
             });
-          } catch (err: any) {
-            console.error("ERRORE INVIO FCI:", err.response?.data || err.message);
+          } catch (err) {
+            console.log("Salto: possibile duplicato.");
           }
-        } else {
-          console.warn(`Salto articolo "${art.titolo}": Contenuto insufficiente o non generato.`);
         }
       });
     }
