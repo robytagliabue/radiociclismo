@@ -13,9 +13,10 @@ const slugify = (text: string) =>
     .replace(/[^\w-]+/g, '')
     .replace(/--+/g, '-');
 
+// Funzione di scraping con User-Agent reale per evitare blocchi dai siti istituzionali
 function fetchPage(url: string): string {
   try {
-    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" --compressed "${url}"`;
+    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" --compressed "${url}"`;
     return execSync(cmd, { maxBuffer: 15 * 1024 * 1024 }).toString();
   } catch (e) { 
     console.error(`Errore nel fetch di ${url}:`, e);
@@ -58,7 +59,11 @@ export const fciWorkflowFn = inngest.createFunction(
             const titolo = $(el).find("h2").text().trim() || $(el).text().trim();
             let link = $(el).find("a").attr("href") || $(el).attr("href");
             if (link && titolo.length > 10) {
-              items.push({ titolo, url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`, fonte: src.name });
+              items.push({ 
+                titolo, 
+                url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`, 
+                fonte: src.name 
+              });
             }
           }
         });
@@ -71,25 +76,25 @@ export const fciWorkflowFn = inngest.createFunction(
         const htmlArt = fetchPage(art.url);
         const corpo = cheerio.load(htmlArt)("article, .article-content").text().substring(0, 2500);
 
-        // Chiamata all'agente con istruzioni anti-test
+        // Chiamata all'agente con istruzioni rigorose
         const res = await (cyclingAgent as any).generateLegacy(
-          `Sei un giornalista sportivo. Rielabora questa notizia da ${art.fonte}: ${art.titolo}. 
-          Testo: ${corpo}. 
-          IMPORTANTE: Non generare testi brevi o di prova. Scrivi un articolo completo. 
+          `Sei la redazione di RadioCiclismo. Rielabora questa notizia da ${art.fonte}: ${art.titolo}. 
+          Testo sorgente: ${corpo}. 
+          IMPORTANTE: Produci un articolo professionale e completo. Evita bozze brevi.
           RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
         );
 
         const articoloAI = res?.object || res;
         
-        // Verifica che l'articolo non sia vuoto o "test"
-        if (articoloAI && articoloAI.contenuto && articoloAI.contenuto.length > 100 && sessionCookie) {
+        // Verifica integrità contenuto (minimo 150 caratteri per evitare articoli "vuoti")
+        if (articoloAI && articoloAI.contenuto && articoloAI.contenuto.length > 150 && sessionCookie) {
           
-          // CALCOLO RITARDO: Ora attuale + 2 ore
-          const scheduledTime = new Date();
-          scheduledTime.setHours(scheduledTime.getHours() + 2);
+          // SCHEDULAZIONE: Ora attuale + 2 ore
+          const scheduledDate = new Date();
+          scheduledDate.setHours(scheduledDate.getDate() + 2);
 
           const payload = {
-            slug: `news-${Date.now()}-${slugify(art.titolo)}`,
+            slug: `giovanili-${Date.now()}-${slugify(art.titolo)}`,
             title: articoloAI.titolo || art.titolo,
             titleEn: "",
             excerpt: articoloAI.excerpt || "",
@@ -100,7 +105,7 @@ export const fciWorkflowFn = inngest.createFunction(
             images: [],
             hashtags: [...(articoloAI.tags || []), "#giovanili", "#ciclismo"],
             author: "RadioCiclismo AI",
-            publishAt: scheduledTime.toISOString() // Programmato tra 2 ore
+            publishAt: scheduledDate.toISOString() // Pubblicazione programmata
           };
 
           try {
@@ -111,10 +116,10 @@ export const fciWorkflowFn = inngest.createFunction(
               }
             });
           } catch (err: any) {
-            console.error("ERRORE INVIO FCI:", err.response?.data);
+            console.error("ERRORE INVIO FCI:", err.response?.data || err.message);
           }
         } else {
-          console.warn(`Articolo per "${art.titolo}" scartato perché vuoto o non valido.`);
+          console.warn(`Salto articolo "${art.titolo}": Contenuto insufficiente o non generato.`);
         }
       });
     }
