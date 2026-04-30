@@ -6,11 +6,15 @@ import * as cheerio from "cheerio";
 
 const RC_BASE = "https://radiociclismo.com";
 
+// Funzione di scraping con User-Agent per evitare blocchi
 function fetchPage(url: string): string {
   try {
-    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0" --compressed "${url}"`;
+    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" --compressed "${url}"`;
     return execSync(cmd, { maxBuffer: 15 * 1024 * 1024 }).toString();
-  } catch (e) { return ""; }
+  } catch (e) { 
+    console.error(`Errore nel fetch di ${url}:`, e);
+    return ""; 
+  }
 }
 
 async function getSessionCookie(): Promise<string> {
@@ -24,62 +28,89 @@ async function getSessionCookie(): Promise<string> {
 }
 
 export const fciWorkflowFn = inngest.createFunction(
-  { id: "fci-workflow", name: "RadioCiclismo — Nazionali & News", concurrency: 2 },
+  { id: "fci-workflow", name: "RadioCiclismo — Nazionali e Giovanili", concurrency: 2 },
   { event: FCI_EVENT },
   async ({ step }) => {
     const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
 
-    const newsArticoli = await step.run("scrape-news", async () => {
-      const html = fetchPage("https://bici.pro/news/giovani/");
-      const $ = cheerio.load(html);
+    const newsArticoli = await step.run("scrape-all-sources", async () => {
       const items: any[] = [];
-      $("article").each((i, el) => {
-        const titolo = $(el).find("h2").text().trim();
-        const url = $(el).find("a").attr("href");
-        if (titolo && url && i < 2) items.push({ titolo, url });
-      });
+      
+      const sources = [
+        { name: "Bici.pro Giovani", url: "https://bici.pro/news/giovani/" },
+        { name: "FCI Strada", url: "https://www.federciclismo.it/it/article-archive/98717172-e565-4965-b6ca-b830d6961633/" },
+        { name: "FCI Giovanile", url: "https://www.federciclismo.it/it/article-archive/25263677-7443-4161-9f93-4700d83296c0/" }
+      ];
+
+      for (const src of sources) {
+        const html = fetchPage(src.url);
+        if (!html) continue;
+
+        const $ = cheerio.load(html);
+        
+        // Selettori adattivi per Bici.pro o FCI
+        const container = src.name.includes("FCI") ? ".article-list .item, .news-list a" : "article";
+
+        $(container).each((i, el) => {
+          if (i < 2) { // Limite di 2 news per fonte a ogni esecuzione
+            const titolo = $(el).find("h2").text().trim() || $(el).text().trim();
+            let link = $(el).find("a").attr("href") || $(el).attr("href");
+            
+            if (link && titolo.length > 10) {
+              items.push({
+                titolo,
+                url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`,
+                fonte: src.name
+              });
+            }
+          }
+        });
+      }
       return items;
     });
 
     for (const art of newsArticoli) {
-      await step.run(`process-fci-${art.titolo.substring(0,5)}`, async () => {
+      await step.run(`process-news-${art.titolo.substring(0,10)}`, async () => {
         const htmlArt = fetchPage(art.url);
-        const corpo = cheerio.load(htmlArt)("article").text().substring(0, 2500);
+        const corpo = cheerio.load(htmlArt)("article, .article-content, .news-detail").text().substring(0, 3000);
 
-        let ranking = "Dati ranking non disponibili.";
+        let ranking = "Ranking non disponibile.";
         try {
           const r = await axios.get(`${RC_BASE}/api/athletes-ranking?category=under23&limit=5`);
           ranking = JSON.stringify(r.data);
         } catch {}
 
         const res = await (cyclingAgent as any).generateLegacy(
-          `Rielabora per RadioCiclismo: ${art.titolo}. Testo: ${corpo}. Contest Ranking: ${ranking}. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+          `Sei la voce ufficiale di RadioCiclismo. Rielabora questa notizia da ${art.fonte}: ${art.titolo}. 
+          Testo sorgente: ${corpo}. 
+          Dati tecnici ranking: ${ranking}.
+          RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
         );
 
-        const articolo = res?.object || res;
+        const articoloAI = res?.object || res;
         
-        if (articolo && sessionCookie) {
+        if (articoloAI && sessionCookie) {
           const payload = {
-            slug: art.titolo.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, ''),
-            title: articolo.titolo,
+            slug: `giovanili-${art.titolo.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '')}`,
+            title: articoloAI.titolo,
             titleEn: null,
-            excerpt: articolo.excerpt,
+            excerpt: articoloAI.excerpt,
             excerptEn: null,
-            content: articolo.contenuto,
+            content: articoloAI.contenuto,
             contentEn: null,
             coverImageUrl: null,
             images: [],
-            hashtags: articolo.tags || [],
-            author: "RadioCiclismo AI",
+            hashtags: [...(articoloAI.tags || []), "#giovanili", "#fci"],
+            author: "RadioCiclismo Reporter",
             publishAt: new Date().toISOString()
           };
 
           await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-            headers: { Cookie: sessionCookie }
+            headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
           });
         }
       });
     }
-    return { processed: newsArticoli.length };
+    return { total_processed: newsArticoli.length };
   }
 );
