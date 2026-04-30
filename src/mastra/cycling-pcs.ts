@@ -250,34 +250,59 @@ export const cyclingDispatchFn = inngest.createFunction(
       return cookie;
     });
 
-    // Leggi calendario PCS di oggi
+    // Leggi calendario PCS di oggi E ieri (copertura gare finite tardi)
     const gareOggi = await step.run("pcs-fetch-calendar", async () => {
-      const oggi = new Date().toISOString().split("T")[0];
-      const cmd = `curl -s -L --http2 --max-time 20 -H "User-Agent: ${UA}" "${PCS_BASE}/races.php?date=${oggi}"`;
-      const html = execSync(cmd).toString();
-      const $ = cheerio.load(html);
+      const oggi = new Date();
+      const ieri = new Date(oggi);
+      ieri.setDate(ieri.getDate() - 1);
 
-      const results: Array<{ name: string; url: string; winner: string }> = [];
+      const dateOggi = oggi.toISOString().split("T")[0];
+      const dateIeri = ieri.toISOString().split("T")[0];
 
-      $("table.basic tr").each((_, el) => {
-        const link = $(el).find("a[href*='race/']");
-        const name = link.text().trim();
-        const href = link.attr("href") ?? "";
-        // Il vincitore è l'ultimo .ar nella riga (corridore, non nazione)
-        const winner = $(el).find("a[href*='rider/']").last().text().trim();
+      const fetchGare = (date: string): Array<{ name: string; url: string; winner: string }> => {
+        try {
+          const cmd = `curl -s -L --http2 --max-time 20 -H "User-Agent: ${UA}" "${PCS_BASE}/races.php?date=${date}"`;
+          const html = execSync(cmd).toString();
+          const $ = cheerio.load(html);
+          const results: Array<{ name: string; url: string; winner: string }> = [];
 
-        // Skippa righe senza nome, url o vincitore (gare non ancora concluse)
-        if (name && href && winner) {
-          results.push({ name, url: href.replace(/^\//, ""), winner });
+          $("table.basic tr").each((_, el) => {
+            const link = $(el).find("a[href*=\'race/\']");
+            const name = link.text().trim();
+            const href = link.attr("href") ?? "";
+            const winner = $(el).find("a[href*=\'rider/\']").last().text().trim();
+            if (name && href && winner) {
+              results.push({ name, url: href.replace(/^\//, ""), winner });
+            }
+          });
+
+          console.log(`[PCS DISPATCH] ${date}: ${results.length} gare trovate`);
+          return results;
+        } catch (e: any) {
+          console.error(`[PCS DISPATCH] Fetch ${date} fallito:`, e.message);
+          return [];
         }
-      });
+      };
 
-      console.log(`[PCS DISPATCH] Gare con risultati oggi: ${results.length}`);
-      return results;
+      const gareOggiRaw = fetchGare(dateOggi);
+      const gareIeriRaw = fetchGare(dateIeri);
+
+      // Deduplicazione per URL — ieri ha priorità se già presente
+      const seen = new Set<string>();
+      const merged: Array<{ name: string; url: string; winner: string }> = [];
+      for (const g of [...gareOggiRaw, ...gareIeriRaw]) {
+        if (!seen.has(g.url)) {
+          seen.add(g.url);
+          merged.push(g);
+        }
+      }
+
+      console.log(`[PCS DISPATCH] Totale gare da processare: ${merged.length}`);
+      return merged;
     });
 
     if (!gareOggi.length) {
-      return { dispatched: 0, message: "Nessuna gara con risultati oggi su PCS" };
+      return { dispatched: 0, message: "Nessuna gara con risultati oggi/ieri su PCS" };
     }
 
     // Dispatcha un evento per ogni gara — Inngest gestisce i fallimenti individualmente
@@ -307,6 +332,11 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
   async ({ event, step }) => {
     const { gara, sessionCookie } = event.data;
+    if (!gara || !gara.name || !gara.url || !gara.winner) {
+      console.error("[PCS WORKER] Payload non valido:", JSON.stringify(event.data));
+      return { status: "error", reason: "payload_invalid" };
+    }
+
 
     // W1 — Deduplicazione (evita di riprocessare se già pubblicato)
     const giaPresente = await step.run("pcs-check-dup", async () => {
