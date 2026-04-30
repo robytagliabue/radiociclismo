@@ -156,7 +156,10 @@ async function getSessionCookie(): Promise<string> {
 // ─── Leggi gare FCI di oggi dal DB ───────────────────────────────────────────
 // Queste gare hanno già la classifica caricata dal CSV worker
 async function getGareFCIOggi(): Promise<GaraFCI[]> {
-  // Cerca gare degli ultimi 7 giorni con risultati caricati ma senza articolo ancora generato
+  // Cerca gare i cui risultati FCI sono stati caricati/aggiornati nelle ultime 48h
+  // e per cui non è ancora stato generato un articolo (article_generated_at IS NULL)
+  // Usa rr.updated_at invece di r.start_date — cattura sia inserimenti nuovi
+  // che aggiornamenti successivi dello scraper FCI
   const res = await pool.query<{
     race_id: number;
     title: string;
@@ -178,14 +181,12 @@ async function getGareFCIOggi(): Promise<GaraFCI[]> {
        rr.rankings
      FROM races r
      JOIN race_results rr ON rr.race_id = r.id
-     WHERE r.start_date >= NOW() - INTERVAL '7 days'
-       AND r.start_date <= NOW()
-       AND r.status = 'approved'
+     WHERE rr.upload_source = 'fci_scraper'
+       AND rr.updated_at >= NOW() - INTERVAL '48 hours'
        AND r.article_generated_at IS NULL
-       AND rr.upload_source = 'fci_scraper'
        AND rr.rankings IS NOT NULL
        AND jsonb_array_length(rr.rankings) > 0
-     ORDER BY r.start_date DESC, r.id`
+     ORDER BY rr.updated_at DESC, r.id`
   );
 
   return res.rows
