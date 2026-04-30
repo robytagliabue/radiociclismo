@@ -26,6 +26,13 @@ import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
 import { pool } from "./db.js";
+import {
+  incrociaCongRC,
+  markArticleGenerated,
+  isAlreadyPublished,
+  isArticleExistsForRace,
+  resetRCRacesCache,
+} from "./rcUtils.js";
 
 // ─── Costanti ─────────────────────────────────────────────────────────────────
 const RC_BASE = "https://radiociclismo.com";
@@ -144,21 +151,7 @@ async function getSessionCookie(): Promise<string> {
   return cookies[0]?.split(";")[0] ?? "";
 }
 
-// ─── Deduplicazione articoli RC ───────────────────────────────────────────────
-async function isAlreadyPublished(titolo: string, cookie: string): Promise<boolean> {
-  try {
-    const res = await axios.get(
-      `${RC_BASE}/api/admin/articles?search=${encodeURIComponent(titolo.substring(0, 30))}&limit=5`,
-      { headers: { Cookie: cookie } }
-    );
-    const articles = res.data?.articles ?? res.data ?? [];
-    return articles.some((a: any) =>
-      a.title?.toLowerCase().includes(titolo.toLowerCase().substring(0, 20))
-    );
-  } catch {
-    return false;
-  }
-}
+// isAlreadyPublished importato da rcUtils.ts
 
 // ─── Leggi gare FCI di oggi dal DB ───────────────────────────────────────────
 // Queste gare hanno già la classifica caricata dal CSV worker
@@ -256,124 +249,7 @@ Rispondi SOLO con il JSON richiesto:
 }
 
 // ─── FASE 2a: Incrocio con API RC races ───────────────────────────────────────
-// L'API restituisce un array piatto (no paginazione, no wrapper).
-// Strategia: prima match deterministico per fciRaceId (se disponibile),
-// poi fuzzy match sul titolo (Levenshtein semplificato).
-// "hasResults" = state === "archived" (gara conclusa con risultati caricati).
-
-interface RCRace {
-  id: number;
-  slug: string;
-  title: string;
-  category: string;
-  startDate: string;
-  state: "upcoming" | "in_progress" | "archived";
-  status: "pending" | "approved" | "rejected";
-  fciRaceId: string | null;
-  uciRaceId: string | null;
-  region: string | null;
-}
-
-// Distanza di Levenshtein semplificata per fuzzy match titoli
-function levenshtein(a: string, b: string): number {
-  const m = a.length, n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  );
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = a[i-1] === b[j-1]
-        ? dp[i-1][j-1]
-        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
-  return dp[m][n];
-}
-
-function normalizzaTitolo(t: string): string {
-  return t.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Cache in-memory per evitare chiamate ripetute nella stessa esecuzione
-let rcRacesCache: RCRace[] | null = null;
-
-async function fetchRCRaces(cookie: string): Promise<RCRace[]> {
-  if (rcRacesCache) return rcRacesCache;
-  try {
-    const res = await axios.get(
-      `${RC_BASE}/api/admin/races?status=approved`,
-      { headers: { Cookie: cookie } }
-    );
-    rcRacesCache = Array.isArray(res.data) ? res.data : [];
-    console.log(`[RC RACES] Caricate ${rcRacesCache.length} gare approvate`);
-    return rcRacesCache;
-  } catch (e: any) {
-    console.error("[RC RACES] Fetch fallito:", e.message);
-    return [];
-  }
-}
-
-async function incrociaCongRC(
-  nomeGara: string,
-  cookie: string,
-  fciRaceId?: string | null
-): Promise<{ found: boolean; raceId?: number; slug?: string; hasResults: boolean; race?: RCRace }> {
-  const races = await fetchRCRaces(cookie);
-  if (!races.length) return { found: false, hasResults: false };
-
-  // 1. Match deterministico per fciRaceId (più affidabile)
-  if (fciRaceId) {
-    const exact = races.find(r => r.fciRaceId === fciRaceId);
-    if (exact) {
-      console.log(`[RC MATCH] Deterministico fciRaceId="${fciRaceId}" → "${exact.title}"`);
-      return {
-        found: true,
-        raceId: exact.id,
-        slug: exact.slug,
-        hasResults: exact.state === "archived",
-        race: exact,
-      };
-    }
-  }
-
-  // 2. Fuzzy match sul titolo normalizzato
-  const nomeNorm = normalizzaTitolo(nomeGara);
-  let bestMatch: RCRace | null = null;
-  let bestScore = Infinity;
-
-  for (const race of races) {
-    const raceNorm = normalizzaTitolo(race.title);
-    // Shortcut: se uno contiene l'altro, priorità massima
-    if (raceNorm.includes(nomeNorm) || nomeNorm.includes(raceNorm)) {
-      bestMatch = race;
-      bestScore = 0;
-      break;
-    }
-    const dist = levenshtein(nomeNorm, raceNorm);
-    // Score relativo alla lunghezza (tolleranza ~30%)
-    const score = dist / Math.max(nomeNorm.length, raceNorm.length);
-    if (score < bestScore) {
-      bestScore = score;
-      bestMatch = race;
-    }
-  }
-
-  // Soglia: accetta match solo se similarità > 70%
-  if (bestMatch && bestScore < 0.3) {
-    console.log(`[RC MATCH] Fuzzy "${nomeGara}" → "${bestMatch.title}" (score: ${bestScore.toFixed(2)})`);
-    return {
-      found: true,
-      raceId: bestMatch.id,
-      slug: bestMatch.slug,
-      hasResults: bestMatch.state === "archived",
-      race: bestMatch,
-    };
-  }
-
-  console.log(`[RC MATCH] Nessun match per "${nomeGara}" (miglior score: ${bestScore.toFixed(2)})`);
-  return { found: false, hasResults: false };
-}
+// Logica spostata in rcUtils.ts (condivisa con cycling-pcs.ts)
 
 // ─── FASE 2b: Arricchisci top 10 con posizione in Classifica RC Giovani ───────
 // Per gare con classifica strutturata (dal DB)
@@ -635,24 +511,7 @@ async function pubblicaArticolo(
   return { id: res.data?.id, success: true };
 }
 
-// ─── Marca gara come articolo generato su RC ─────────────────────────────────
-async function markArticleGenerated(
-  raceId: number,
-  articleId: string | number,
-  cookie: string
-): Promise<void> {
-  try {
-    await axios.patch(
-      `${RC_BASE}/api/admin/races/${raceId}/mark-article-generated`,
-      { articleId },
-      { headers: { "Content-Type": "application/json", Cookie: cookie } }
-    );
-    console.log(`[FCI] Gara ${raceId} marcata — articleId: ${articleId}`);
-  } catch (e: any) {
-    // Non bloccante — logga ma non interrompe il workflow
-    console.error(`[FCI] mark-article-generated fallito per gara ${raceId}:`, e.message);
-  }
-}
+// markArticleGenerated importato da rcUtils.ts
 
 // ─── Scraping bici.pro ────────────────────────────────────────────────────────
 function scrapaBiciProOggi(): BiciProArticolo[] {
@@ -770,8 +629,8 @@ export const fciWorkflowFn = inngest.createFunction(
       return cookie;
     });
 
-    // Reset cache gare RC — ogni run Inngest e fresh
-    rcRacesCache = null;
+    // Reset cache gare RC — ogni run Inngest è fresh
+    resetRCRacesCache();
 
     // ════════════════════════════════════════════════════════════════════════
     // PIPELINE A — Gare FCI dal DB (classifiche già caricate dal CSV worker)
@@ -790,11 +649,16 @@ export const fciWorkflowFn = inngest.createFunction(
       const garaReport: any = { nome: gara.title, fonte: "DB", azioni: [] };
 
       try {
-        // A1 — Deduplicazione
+        // A1 — Deduplicazione: prima controlla article_generated_at via RC match
+        // (già filtrata dalla query SQL con article_generated_at IS NULL,
+        //  ma il check RC è un double-check deterministico)
         const giaPresente = await step.run(`fci-db-check-${gara.raceId}`, async () => {
-          const exists = await isAlreadyPublished(gara.title, sessionCookie);
-          console.log(`[FCI DB] "${gara.title}" già pubblicata: ${exists}`);
-          return exists;
+          // Controlla per slug RC se disponibile
+          if (gara.slug) {
+            const bySlug = await isArticleExistsForRace(gara.slug, sessionCookie);
+            if (bySlug) return true;
+          }
+          return await isAlreadyPublished(gara.title, sessionCookie);
         });
         if (giaPresente) {
           garaReport.azioni.push("Già pubblicata — skippata");
