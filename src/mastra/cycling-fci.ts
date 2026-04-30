@@ -6,7 +6,13 @@ import * as cheerio from "cheerio";
 
 const RC_BASE = "https://radiociclismo.com";
 
-// Funzione di scraping con User-Agent per evitare blocchi
+// Helper per lo slug (URL safe)
+const slugify = (text: string) => 
+  text.toString().toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w-]+/g, '')
+    .replace(/--+/g, '-');
+
 function fetchPage(url: string): string {
   try {
     const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" --compressed "${url}"`;
@@ -35,9 +41,8 @@ export const fciWorkflowFn = inngest.createFunction(
 
     const newsArticoli = await step.run("scrape-all-sources", async () => {
       const items: any[] = [];
-      
       const sources = [
-        { name: "Bici.pro Giovani", url: "https://bici.pro/news/giovani/" },
+        { name: "BiciPro", url: "https://bici.pro/news/giovani/" },
         { name: "FCI Strada", url: "https://www.federciclismo.it/it/article-archive/98717172-e565-4965-b6ca-b830d6961633/" },
         { name: "FCI Giovanile", url: "https://www.federciclismo.it/it/article-archive/25263677-7443-4161-9f93-4700d83296c0/" }
       ];
@@ -45,23 +50,15 @@ export const fciWorkflowFn = inngest.createFunction(
       for (const src of sources) {
         const html = fetchPage(src.url);
         if (!html) continue;
-
         const $ = cheerio.load(html);
-        
-        // Selettori adattivi per Bici.pro o FCI
         const container = src.name.includes("FCI") ? ".article-list .item, .news-list a" : "article";
 
         $(container).each((i, el) => {
-          if (i < 2) { // Limite di 2 news per fonte a ogni esecuzione
+          if (i < 2) {
             const titolo = $(el).find("h2").text().trim() || $(el).text().trim();
             let link = $(el).find("a").attr("href") || $(el).attr("href");
-            
             if (link && titolo.length > 10) {
-              items.push({
-                titolo,
-                url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`,
-                fonte: src.name
-              });
+              items.push({ titolo, url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`, fonte: src.name });
             }
           }
         });
@@ -70,47 +67,57 @@ export const fciWorkflowFn = inngest.createFunction(
     });
 
     for (const art of newsArticoli) {
-      await step.run(`process-news-${art.titolo.substring(0,10)}`, async () => {
+      await step.run(`process-${art.titolo.substring(0,10)}`, async () => {
         const htmlArt = fetchPage(art.url);
-        const corpo = cheerio.load(htmlArt)("article, .article-content, .news-detail").text().substring(0, 3000);
+        const corpo = cheerio.load(htmlArt)("article, .article-content").text().substring(0, 2500);
 
-        let ranking = "Ranking non disponibile.";
-        try {
-          const r = await axios.get(`${RC_BASE}/api/athletes-ranking?category=under23&limit=5`);
-          ranking = JSON.stringify(r.data);
-        } catch {}
-
+        // Chiamata all'agente con istruzioni anti-test
         const res = await (cyclingAgent as any).generateLegacy(
-          `Sei la voce ufficiale di RadioCiclismo. Rielabora questa notizia da ${art.fonte}: ${art.titolo}. 
-          Testo sorgente: ${corpo}. 
-          Dati tecnici ranking: ${ranking}.
+          `Sei un giornalista sportivo. Rielabora questa notizia da ${art.fonte}: ${art.titolo}. 
+          Testo: ${corpo}. 
+          IMPORTANTE: Non generare testi brevi o di prova. Scrivi un articolo completo. 
           RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
         );
 
         const articoloAI = res?.object || res;
         
-        if (articoloAI && sessionCookie) {
+        // Verifica che l'articolo non sia vuoto o "test"
+        if (articoloAI && articoloAI.contenuto && articoloAI.contenuto.length > 100 && sessionCookie) {
+          
+          // CALCOLO RITARDO: Ora attuale + 2 ore
+          const scheduledTime = new Date();
+          scheduledTime.setHours(scheduledTime.getHours() + 2);
+
           const payload = {
-            slug: `giovanili-${art.titolo.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '')}`,
-            title: articoloAI.titolo,
-            titleEn: null,
-            excerpt: articoloAI.excerpt,
-            excerptEn: null,
+            slug: `news-${Date.now()}-${slugify(art.titolo)}`,
+            title: articoloAI.titolo || art.titolo,
+            titleEn: "",
+            excerpt: articoloAI.excerpt || "",
+            excerptEn: "",
             content: articoloAI.contenuto,
-            contentEn: null,
-            coverImageUrl: null,
+            contentEn: "",
+            coverImageUrl: "",
             images: [],
-            hashtags: [...(articoloAI.tags || []), "#giovanili", "#fci"],
-            author: "RadioCiclismo Reporter",
-            publishAt: new Date().toISOString()
+            hashtags: [...(articoloAI.tags || []), "#giovanili", "#ciclismo"],
+            author: "RadioCiclismo AI",
+            publishAt: scheduledTime.toISOString() // Programmato tra 2 ore
           };
 
-          await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-            headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
-          });
+          try {
+            await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
+              headers: { 
+                Cookie: sessionCookie, 
+                "Content-Type": "application/json" 
+              }
+            });
+          } catch (err: any) {
+            console.error("ERRORE INVIO FCI:", err.response?.data);
+          }
+        } else {
+          console.warn(`Articolo per "${art.titolo}" scartato perché vuoto o non valido.`);
         }
       });
     }
-    return { total_processed: newsArticoli.length };
+    return { processed: newsArticoli.length };
   }
 );
