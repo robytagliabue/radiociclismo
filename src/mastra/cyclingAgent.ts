@@ -10,7 +10,8 @@ export const cyclingAgent = new (Agent as any)({
   Usa i tool a disposizione per verificare se un contenuto esiste già.
   Rispondi sempre seguendo lo schema JSON richiesto, senza testo extra fuori dal blocco JSON.`,
   
-  model: anthropic('claude-3-5-sonnet-20240620'), 
+// USA QUESTA STRINGA:
+  model: anthropic('claude-3-5-sonnet-latest'), 
   
   tools: { listArticlesTool, deleteArticleTool },
   
