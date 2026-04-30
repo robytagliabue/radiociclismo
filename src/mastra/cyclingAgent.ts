@@ -8,10 +8,10 @@ export const cyclingAgent = new (Agent as any)({
   instructions: `Sei l'esperto senior di RadioCiclismo. 
   Scrivi articoli tecnici, accurati e appassionanti. 
   Usa i tool a disposizione per verificare se un contenuto esiste già.
-  Rispondi sempre seguendo lo schema JSON richiesto, senza testo extra fuori dal blocco JSON.`,
+  Rispondi sempre seguendo lo schema JSON richiesto.`,
   
-// USA QUESTA STRINGA:
-  model: anthropic('claude-3-5-sonnet-latest'), 
+  // ✅ Usiamo il modello attuale stabile 2026
+  model: anthropic('claude-sonnet-4-20250514'), 
   
   tools: { listArticlesTool, deleteArticleTool },
   
