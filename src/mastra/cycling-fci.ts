@@ -924,8 +924,8 @@ export const fciWorkflowFn = inngest.createFunction(
         );
 
         // B8 — Pubblica (slug con timestamp per unicità)
-        articoloIT.slug = `${articoloIT.slug}-${Date.now()}`;
         const pub = await step.run(`bipro-pubblica-${key}`, async () => {
+          articoloIT.slug = `${articoloIT.slug}-${Date.now()}`;
           try {
             return await pubblicaArticolo(articoloIT, articoloEN, sessionCookie);
           } catch (err: any) {
@@ -1023,8 +1023,8 @@ export const fciWorkflowFn = inngest.createFunction(
         );
 
         // C8 — Pubblica
-        articoloIT.slug = `${articoloIT.slug}-${Date.now()}`;
         const pub = await step.run(`fci-strada-pubblica-${key}`, async () => {
+          articoloIT.slug = `${articoloIT.slug}-${Date.now()}`;
           try {
             return await pubblicaArticolo(articoloIT, articoloEN, sessionCookie);
           } catch (err: any) {
