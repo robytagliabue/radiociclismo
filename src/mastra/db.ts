@@ -1,4 +1,19 @@
-import pg from 'pg';
+/**
+ * db.ts  →  src/mastra/db.ts
+ * Connessione PostgreSQL e utility DB per il workflow RadioCiclismo.
+ *
+ * Funzioni attive:
+ *  - pool / getPool         → usato da cycling-fci.ts (getGareFCIOggi)
+ *  - saveRaceResults        → usato dal CSV worker PCS
+ *
+ * Rimosso:
+ *  - ensurePublishedArticlesTable  → tabelle non più necessarie
+ *  - acquireWorkflowLock           → sostituito da concurrency Inngest
+ *  - releaseWorkflowLock           → sostituito da concurrency Inngest
+ *  - savePendingArticles           → pubblicazione ora diretta via API RC
+ */
+
+import pg from "pg";
 const { Pool } = pg;
 
 const pool = new Pool({
@@ -9,60 +24,9 @@ const pool = new Pool({
 export { pool };
 export const getPool = () => pool;
 
-export async function ensurePublishedArticlesTable() {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS published_articles (
-        id SERIAL PRIMARY KEY,
-        slug TEXT UNIQUE,
-        title_it TEXT,
-        content_it TEXT,
-        title_en TEXT,
-        content_en TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS workflow_locks (
-        id TEXT PRIMARY KEY,
-        locked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE TABLE IF NOT EXISTS races (
-        id SERIAL PRIMARY KEY,
-        external_id TEXT UNIQUE,
-        name TEXT,
-        date DATE,
-        category TEXT,
-        status TEXT DEFAULT 'completed'
-      );
-      CREATE TABLE IF NOT EXISTS race_results (
-        id SERIAL PRIMARY KEY,
-        race_id INTEGER REFERENCES races(id) ON DELETE CASCADE,
-        position INTEGER,
-        cyclist_name TEXT,
-        team_name TEXT,
-        time_gap TEXT,
-        is_official BOOLEAN DEFAULT true,
-        UNIQUE(race_id, position)
-      );
-    `);
-  } finally {
-    client.release();
-  }
-}
-
-export async function acquireWorkflowLock() {
-  try {
-    const res = await pool.query(
-      `INSERT INTO workflow_locks (id) VALUES ('cycling_sync') ON CONFLICT (id) DO NOTHING RETURNING id`
-    );
-    return res.rowCount !== null && res.rowCount > 0;
-  } catch (e) { return false; }
-}
-
-export async function releaseWorkflowLock() {
-  await pool.query(`DELETE FROM workflow_locks WHERE id = 'cycling_sync'`);
-}
-
+// ─── Salva risultati di una gara nel DB ───────────────────────────────────────
+// Chiamato dal CSV worker PCS dopo import dei risultati ufficiali.
+// Usa ON CONFLICT per idempotenza — sicuro da chiamare più volte.
 export async function saveRaceResults(raceData: {
   externalId: string;
   name: string;
@@ -70,44 +34,36 @@ export async function saveRaceResults(raceData: {
 }) {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
+
+    // Upsert della gara
     const raceRes = await client.query(
-      `INSERT INTO races (external_id, name, date) 
-       VALUES ($1, $2, CURRENT_DATE) 
-       ON CONFLICT (external_id) DO UPDATE SET name = $2 
+      `INSERT INTO races (external_id, name, date)
+       VALUES ($1, $2, CURRENT_DATE)
+       ON CONFLICT (external_id) DO UPDATE SET name = $2
        RETURNING id`,
       [raceData.externalId, raceData.name]
     );
     const raceId = raceRes.rows[0].id;
+
+    // Upsert dei risultati
     for (const row of raceData.results) {
       await client.query(
         `INSERT INTO race_results (race_id, position, cyclist_name, team_name, time_gap)
          VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (race_id, position) DO UPDATE SET 
-         cyclist_name = $3, team_name = $4, time_gap = $5`,
+         ON CONFLICT (race_id, position) DO UPDATE SET
+           cyclist_name = $3,
+           team_name    = $4,
+           time_gap     = $5`,
         [raceId, row.position, row.name, row.team, row.gap]
       );
     }
-    await client.query('COMMIT');
+
+    await client.query("COMMIT");
   } catch (e) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw e;
   } finally {
     client.release();
   }
-}
-
-export async function savePendingArticles(articles: any[]) {
-  const client = await pool.connect();
-  try {
-    for (const art of articles) {
-      // Corretto il template literal qui sotto per evitare errori di build
-      const slug = art.slug || `race-${Date.now()}`;
-      await client.query(
-        `INSERT INTO published_articles (slug, title_it, content_it, title_en, content_en) 
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (slug) DO NOTHING`,
-        [slug, art.titleIt, art.contentIt, art.titleEn, art.contentEn]
-      );
-    }
-  } finally { client.release(); }
 }
