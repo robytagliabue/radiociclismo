@@ -1,32 +1,25 @@
 import { inngest } from "../client.js";
 import { cyclingAgent } from "./cyclingAgent.js"; 
 import axios from "axios";
+import { execSync } from "child_process";
+import * as cheerio from "cheerio";
+import FormData from "form-data";
 
 const RC_BASE = "https://radiociclismo.com";
+const PCS_BASE = "https://www.procyclingstats.com";
 
-const slugify = (text: string) => 
-  text.toString().toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]+/g, '')
-    .replace(/--+/g, '-');
+// --- LOGICA EDITORIALE STORICA ---
 const STILI_EDITORIALI = [
-  {
-    id: "EPICO_NARRATORE",
-    prompt: "Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta. Usa dati reali. Se mancano dati storici, passa allo stile CRONISTA FLASH."
-  },
-  {
-    id: "SPECIALISTA_TECNICO",
-    prompt: "Stile LO SPECIALISTA TECNICO — Focus: tattica e momenti chiave (scatti, ventagli, salite). Zero aggettivi vuoti."
-  },
-  {
-    id: "FLASH_NEWS",
-    prompt: "Stile IL CRONISTA FLASH — Focus: fatti nudi e crudi. Perfetto per lettura rapida."
-  },
-  {
-    id: "TECH_GURU",
-    prompt: "Stile IL TECH-GURU — Focus: materiali e performance. Se mancano dati sui watt, passa a SPECIALISTA TECNICO."
-  }
+  { id: "EPICO_NARRATORE", prompt: "Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta. Se mancano dati storici, passa a CRONISTA FLASH." },
+  { id: "SPECIALISTA_TECNICO", prompt: "Stile LO SPECIALISTA TECNICO — Focus: tattica, scatti e gestione del ritmo. Zero aggettivi vuoti." },
+  { id: "FLASH_NEWS", prompt: "Stile IL CRONISTA FLASH — Focus: immediatezza, Top 10 e fatti nudi." },
+  { id: "TECH_GURU", prompt: "Stile IL TECH-GURU — Focus: materiali e performance. Se mancano dati tecnici, passa a SPECIALISTA TECNICO." }
 ];
+
+// Helper per normalizzazione e matching
+const slugify = (t: string) => t.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-');
+const normalizza = (n: string) => n.toLowerCase().replace(/\d{4}/g, "").replace(/[^a-z\s]/g, "").trim();
+
 async function getSessionCookie(): Promise<string> {
   try {
     const res = await axios.post(`${RC_BASE}/api/admin/login`, 
@@ -37,82 +30,85 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-export const cyclingDispatchFn = inngest.createFunction(
-  { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
-  { event: "cycling/generate.article" },
-  async ({ step }) => {
-    // Qui andrebbe la logica di recupero gare reali da PCS
-    const gare = [{ nome: "Gara Esempio Pro", id: "sample-1", results: [] }]; 
-
-    for (const [index, gara] of gare.entries()) {
-      await step.sendEvent(`process-race-${index}`, {
-        name: "cycling/process.single.race",
-        data: { gara },
-      });
-    }
-    return { dispatched: gare.length };
-  }
-);
+function generaCSV(risultati: any[]): Buffer {
+  const header = "POSIZIONE,NOME,SQUADRA,TEMPO,DISTACCO,NAZIONE\n";
+  const rows = risultati.map(r => `${r.pos},"${r.nome}","${r.team}","${r.time || ""}","${r.diff || ""}","IT"`).join("\n");
+  return Buffer.from(header + rows, "utf-8");
+}
 
 export const cyclingProcessRaceFn = inngest.createFunction(
-  { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
+  { id: "cycling-worker", name: "RadioCiclismo — PCS Full Worker", concurrency: 1 },
   { event: "cycling/process.single.race" },
   async ({ event, step }) => {
-    const { gara } = event.data;
+    const { gara, index } = event.data; // index serve per la rotazione stili
     const raceSlug = slugify(gara.nome);
     const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
 
-    // --- STEP 1: UPLOAD DATI TECNICI (Sempre, se non presenti) ---
-    await step.run(`upload-technical-data-${raceSlug}`, async () => {
-      if (!gara.results || gara.results.length === 0) return { status: "no_results" };
-
-      try {
-        await axios.post(`${RC_BASE}/api/admin/race-results`, {
-          raceName: gara.nome,
-          slug: raceSlug,
-          results: gara.results
-        }, { headers: { Cookie: sessionCookie } });
-        return { status: "results_uploaded" };
-      } catch (err: any) {
-        if (err.response?.status === 400) return { status: "already_exists" };
-        throw err;
-      }
+    // --- STEP 1: SCRAPING RISULTATI ---
+    const risultati = await step.run("scrape-pcs-results", async () => {
+      const cmd = `curl -s -L --http2 -H "User-Agent: Mozilla/5.0" "${PCS_BASE}${gara.url}"`;
+      const html = execSync(cmd).toString();
+      const $ = cheerio.load(html);
+      const rows: any[] = [];
+      $("table.results tbody tr").slice(0, 15).each((i, el) => {
+        rows.push({
+          pos: i + 1,
+          nome: $(el).find("td:nth-child(2)").text().trim(),
+          team: $(el).find("td:nth-child(3)").text().trim(),
+          time: $(el).find("td:nth-child(4)").text().trim()
+        });
+      });
+      return rows;
     });
 
-    // --- STEP 2: GENERAZIONE ARTICOLO (Solo se c'è sostanza) ---
-    const articoloAI = await step.run(`gen-article-${raceSlug}`, async () => {
+    if (!risultati || risultati.length === 0) return { status: "no_results" };
+
+    // --- STEP 2: UPLOAD DATI TECNICI (CSV) ---
+    await step.run("upload-csv-results", async () => {
+      const rcGareRes = await axios.get(`${RC_BASE}/api/admin/races?status=approved`, { headers: { Cookie: sessionCookie } });
+      const targetGara = rcGareRes.data.find((g: any) => normalizza(g.title).includes(normalizza(gara.nome).substring(0, 10)));
+      
+      if (targetGara) {
+        const csv = generaCSV(risultati);
+        const form = new FormData();
+        form.append("file", csv, { filename: `results-${raceSlug}.csv`, contentType: "text/csv" });
+        await axios.post(`${RC_BASE}/api/admin/races/${targetGara.id}/import-results`, form, {
+          headers: { ...form.getHeaders(), Cookie: sessionCookie }
+        });
+        return { status: "csv_uploaded", garaId: targetGara.id };
+      }
+      return { status: "no_matching_race_in_db" };
+    });
+
+    // --- STEP 3: GENERAZIONE ARTICOLO CON STILE ROTATIVO ---
+    const articoloAI = await step.run("gen-article-style", async () => {
+      const stile = STILI_EDITORIALI[index % STILI_EDITORIALI.length];
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo professionale sulla gara: ${gara.nome}. 
-        Se i dati sono insufficienti per un pezzo di valore, scrivi solo "SKIP".
-        RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+        `Applica lo ${stile.prompt}. Gara: ${gara.nome}. Risultati: ${JSON.stringify(risultati.slice(0, 10))}.
+        Se non hai dati, scrivi "SKIP". Ritorna JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
 
-    // --- STEP 3: PUBBLICAZIONE (Con ritardo 2h e filtro lunghezza) ---
-    await step.run(`publish-editorial-${raceSlug}`, async () => {
-      if (!articoloAI || articoloAI === "SKIP" || (articoloAI.contenuto && articoloAI.contenuto.length < 200)) {
-        return { status: "skipped_insufficient_content" };
-      }
+    // --- STEP 4: PUBBLICAZIONE SCHEDULATA ---
+    await step.run("publish-article", async () => {
+      if (!articoloAI || articoloAI === "SKIP" || articoloAI.contenuto?.length < 250) return { status: "skipped" };
 
-      const scheduledTime = new Date();
-      scheduledTime.setHours(scheduledTime.getHours() + 2);
+      const publishDate = new Date();
+      publishDate.setHours(publishDate.getHours() + 2);
 
-      const payload = {
-        slug: `report-${raceSlug}`,
+      await axios.post(`${RC_BASE}/api/admin/articles`, {
+        slug: `report-${raceSlug}-${Date.now()}`,
         title: articoloAI.titolo,
         content: articoloAI.contenuto,
-        excerpt: articoloAI.excerpt,
-        author: "RadioCiclismo AI",
-        publishAt: scheduledTime.toISOString(),
-        hashtags: articoloAI.tags || [],
-        titleEn: "", excerptEn: "", contentEn: "", coverImageUrl: "", images: []
-      };
+        excerpt: articoloAI.excerpt || "",
+        author: "RadioCiclismo Reporter",
+        publishAt: publishDate.toISOString(),
+        hashtags: articoloAI.tags || ["#ciclismo"],
+        is_published: false
+      }, { headers: { Cookie: sessionCookie } });
 
-      await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-        headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
-      });
-      return { status: "article_scheduled" };
+      return { status: "published_scheduled" };
     });
   }
 );
