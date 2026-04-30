@@ -45,7 +45,7 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo per RadioCiclismo: ${gara.nome}. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+        `Scrivi un articolo professionale per RadioCiclismo: ${gara.nome}. Non usare titoli generici come "test". RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
@@ -53,10 +53,14 @@ export const cyclingProcessRaceFn = inngest.createFunction(
     await step.run(`publish-${raceSlug}`, async () => {
       if (!articoloIT || !sessionCookie) return { skipped: true };
 
+      // CALCOLO RITARDO: Ora attuale + 2 ore
+      const scheduledTime = new Date();
+      scheduledTime.setHours(scheduledTime.getHours() + 2);
+
       const payload = {
         slug: raceSlug,
-        title: articoloIT.titolo || "Senza Titolo",
-        titleEn: "", // Usiamo stringa vuota invece di null per sicurezza
+        title: articoloIT.titolo || "Articolo Ciclismo",
+        titleEn: "",
         excerpt: articoloIT.excerpt || "",
         excerptEn: "",
         content: articoloIT.contenuto || "",
@@ -65,21 +69,21 @@ export const cyclingProcessRaceFn = inngest.createFunction(
         images: [],
         hashtags: articoloIT.tags || [],
         author: "Claude Sonnet",
-        publishAt: new Date().toISOString()
+        publishAt: scheduledTime.toISOString() // Data programmata tra 2 ore
       };
 
       try {
+        // Invio al database (lo schema del tuo server mette isPublished: false di default)
         await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
           headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
         });
       } catch (err: any) {
-        // Questo log ti dirà l'errore esatto di Zod nei log di Railway
-        console.error("DETTAGLIO ERRORE 400:", err.response?.data);
+        console.error("ERRORE INVIO:", err.response?.data);
         throw err;
       }
-      return { success: true };
+      return { success: true, scheduledFor: scheduledTime.toISOString() };
     });
 
-    return { status: "published", race: gara.nome };
+    return { status: "scheduled", race: gara.nome };
   }
 );
