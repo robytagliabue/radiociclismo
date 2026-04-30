@@ -20,15 +20,12 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-// 1. DISPATCHER: Invia le gare al worker
 export const cyclingDispatchFn = inngest.createFunction(
   { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
   { event: "cycling/generate.article" },
   async ({ step }) => {
-    // Qui andrebbe la logica di scraping PCS. Per ora usiamo i dati in ingresso o l'esempio.
-    const gare = [
-      { nome: "Gara Esempio Pro", id: "sample-1", details: "Dettagli della gara..." }
-    ]; 
+    // Qui andrebbe la logica di recupero gare reali da PCS
+    const gare = [{ nome: "Gara Esempio Pro", id: "sample-1", results: [] }]; 
 
     for (const [index, gara] of gare.entries()) {
       await step.sendEvent(`process-race-${index}`, {
@@ -40,7 +37,6 @@ export const cyclingDispatchFn = inngest.createFunction(
   }
 );
 
-// 2. WORKER: Elabora la singola gara e pubblica con ritardo
 export const cyclingProcessRaceFn = inngest.createFunction(
   { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
   { event: "cycling/process.single.race" },
@@ -49,52 +45,57 @@ export const cyclingProcessRaceFn = inngest.createFunction(
     const raceSlug = slugify(gara.nome);
     const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
 
-    const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
+    // --- STEP 1: UPLOAD DATI TECNICI (Sempre, se non presenti) ---
+    await step.run(`upload-technical-data-${raceSlug}`, async () => {
+      if (!gara.results || gara.results.length === 0) return { status: "no_results" };
+
+      try {
+        await axios.post(`${RC_BASE}/api/admin/race-results`, {
+          raceName: gara.nome,
+          slug: raceSlug,
+          results: gara.results
+        }, { headers: { Cookie: sessionCookie } });
+        return { status: "results_uploaded" };
+      } catch (err: any) {
+        if (err.response?.status === 400) return { status: "already_exists" };
+        throw err;
+      }
+    });
+
+    // --- STEP 2: GENERAZIONE ARTICOLO (Solo se c'è sostanza) ---
+    const articoloAI = await step.run(`gen-article-${raceSlug}`, async () => {
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo professionale per RadioCiclismo sulla gara: ${gara.nome}. 
-        Dettagli: ${gara.details || ''}.
-        IMPORTANTE: Non usare titoli di test. Scrivi un pezzo giornalistico completo.
+        `Scrivi un articolo professionale sulla gara: ${gara.nome}. 
+        Se i dati sono insufficienti per un pezzo di valore, scrivi solo "SKIP".
         RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
 
-    await step.run(`publish-${raceSlug}`, async () => {
-      // Controllo qualità: non pubblichiamo se il contenuto è scarso o assente
-      if (!articoloIT || !articoloIT.contenuto || articoloIT.contenuto.length < 100 || !sessionCookie) {
-        return { skipped: true, reason: "Contenuto non idoneo o sessione mancante" };
+    // --- STEP 3: PUBBLICAZIONE (Con ritardo 2h e filtro lunghezza) ---
+    await step.run(`publish-editorial-${raceSlug}`, async () => {
+      if (!articoloAI || articoloAI === "SKIP" || (articoloAI.contenuto && articoloAI.contenuto.length < 200)) {
+        return { status: "skipped_insufficient_content" };
       }
 
-      // PROGRAMMAZIONE: +2 ore
       const scheduledTime = new Date();
       scheduledTime.setHours(scheduledTime.getHours() + 2);
 
       const payload = {
-        slug: `${raceSlug}-${Date.now()}`,
-        title: articoloIT.titolo || gara.nome,
-        titleEn: "",
-        excerpt: articoloIT.excerpt || "",
-        excerptEn: "",
-        content: articoloIT.contenuto,
-        contentEn: "",
-        coverImageUrl: "",
-        images: [],
-        hashtags: articoloIT.tags || ["#ciclismo", "#procycling"],
-        author: "Claude Sonnet",
-        publishAt: scheduledTime.toISOString()
+        slug: `report-${raceSlug}`,
+        title: articoloAI.titolo,
+        content: articoloAI.contenuto,
+        excerpt: articoloAI.excerpt,
+        author: "RadioCiclismo AI",
+        publishAt: scheduledTime.toISOString(),
+        hashtags: articoloAI.tags || [],
+        titleEn: "", excerptEn: "", contentEn: "", coverImageUrl: "", images: []
       };
 
-      try {
-        await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-          headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
-        });
-      } catch (err: any) {
-        console.error("ERRORE PUBBLICAZIONE GARA:", err.response?.data);
-        throw err;
-      }
-      return { success: true, scheduledFor: scheduledTime.toISOString() };
+      await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
+        headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
+      });
+      return { status: "article_scheduled" };
     });
-
-    return { status: "scheduled", race: gara.nome };
   }
 );
