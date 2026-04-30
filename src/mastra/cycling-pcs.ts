@@ -3,7 +3,13 @@ import { cyclingAgent } from "./cyclingAgent.js";
 import axios from "axios";
 
 const RC_BASE = "https://radiociclismo.com";
-const slugify = (text: string) => text.toString().toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
+
+// Helper per creare slug URL-friendly
+const slugify = (text: string) => 
+  text.toString().toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\w-]+/g, '')
+    .replace(/--+/g, '-');
 
 async function getSessionCookie(): Promise<string> {
   try {
@@ -15,21 +21,6 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-export const cyclingDispatchFn = inngest.createFunction(
-  { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
-  { event: "cycling/generate.article" },
-  async ({ step }) => {
-    const gare = [{ nome: "Esempio Gara Pro", id: "1" }]; 
-    for (const [index, gara] of gare.entries()) {
-      await step.sendEvent(`process-race-${index}`, {
-        name: "cycling/process.single.race",
-        data: { gara, index },
-      });
-    }
-    return { dispatched: gare.length };
-  }
-);
-
 export const cyclingProcessRaceFn = inngest.createFunction(
   { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
   { event: "cycling/process.single.race" },
@@ -40,29 +31,40 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo professionale per RadioCiclismo: ${gara.nome}. 
-        Vincitore: Tadej Pogačar. Analizza tattica e distacchi. 
-        RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "slug": "", "tags": [] }`
+        `Scrivi un articolo professionale per RadioCiclismo sulla gara: ${gara.nome}. 
+        Analizza tattica e distacchi. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
 
     await step.run(`publish-${raceSlug}`, async () => {
       if (articoloIT && sessionCookie) {
-        await axios.post(`${RC_BASE}/api/admin/articles`, {
-          title: articoloIT.titolo,
-          content: articoloIT.contenuto,
-          excerpt: articoloIT.excerpt,
+        // Payload costruito esattamente sullo schema insertArticleSchema
+        const payload = {
           slug: raceSlug,
+          title: articoloIT.titolo || articoloIT.title,
+          titleEn: null,
+          excerpt: articoloIT.excerpt,
+          excerptEn: null,
+          content: articoloIT.contenuto || articoloIT.content,
+          contentEn: null,
+          coverImageUrl: null,
+          images: [],
+          hashtags: articoloIT.tags || [],
           author: "Claude Sonnet",
-          category: "pro-tour",
-          published: false,
-          hashtags: articoloIT.tags
-        }, { headers: { Cookie: sessionCookie } });
+          publishAt: new Date().toISOString() // Obbligatorio per lo schema
+        };
+
+        await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
+          headers: { 
+            Cookie: sessionCookie,
+            "Content-Type": "application/json"
+          }
+        });
       }
       return { success: true };
     });
 
-    return { status: "published_draft", race: gara.nome };
+    return { status: "published", race: gara.nome };
   }
 );
