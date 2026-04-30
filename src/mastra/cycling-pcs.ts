@@ -8,7 +8,6 @@ import FormData from "form-data";
 const RC_BASE = "https://radiociclismo.com";
 const PCS_BASE = "https://www.procyclingstats.com";
 
-// --- LOGICA EDITORIALE STORICA ---
 const STILI_EDITORIALI = [
   { id: "EPICO_NARRATORE", prompt: "Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta. Se mancano dati storici, passa a CRONISTA FLASH." },
   { id: "SPECIALISTA_TECNICO", prompt: "Stile LO SPECIALISTA TECNICO — Focus: tattica, scatti e gestione del ritmo. Zero aggettivi vuoti." },
@@ -16,38 +15,59 @@ const STILI_EDITORIALI = [
   { id: "TECH_GURU", prompt: "Stile IL TECH-GURU — Focus: materiali e performance. Se mancano dati tecnici, passa a SPECIALISTA TECNICO." }
 ];
 
-// Helper per normalizzazione e matching
 const slugify = (t: string) => t.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-');
 const normalizza = (n: string) => n.toLowerCase().replace(/\d{4}/g, "").replace(/[^a-z\s]/g, "").trim();
 
-async function getSessionCookie(): Promise<string> {
-  try {
-    const res = await axios.post(`${RC_BASE}/api/admin/login`, 
-      { username: process.env.RC_USERNAME, password: process.env.RC_PASSWORD },
-      { headers: { "Content-Type": "application/json" } }
-    );
-    return (res.headers["set-cookie"] || []).find(c => c.includes("connect.sid"))?.split(";")[0] ?? "";
-  } catch { return ""; }
-}
+// --- FUNZIONE DISPATCH (Mancava questa!) ---
+export const cyclingDispatchFn = inngest.createFunction(
+  { id: "cycling-dispatch", name: "RadioCiclismo — Dispatch PCS" },
+  { event: "cycling/generate.article" }, // Questo evento triggera il controllo giornaliero
+  async ({ step }) => {
+    const gareOggi = await step.run("fetch-today-races", async () => {
+      const oggi = new Date().toISOString().split("T")[0];
+      const html = execSync(`curl -s -L --http2 "${PCS_BASE}/races.php?date=${oggi}"`).toString();
+      const $ = cheerio.load(html);
+      const list: any[] = [];
+      $("table tr").each((_, el) => {
+        const link = $(el).find("a[href^='race/']").first();
+        if (link.length) {
+          list.push({ nome: link.text().trim(), url: link.attr("href") });
+        }
+      });
+      return list;
+    });
 
-function generaCSV(risultati: any[]): Buffer {
-  const header = "POSIZIONE,NOME,SQUADRA,TEMPO,DISTACCO,NAZIONE\n";
-  const rows = risultati.map(r => `${r.pos},"${r.nome}","${r.team}","${r.time || ""}","${r.diff || ""}","IT"`).join("\n");
-  return Buffer.from(header + rows, "utf-8");
-}
+    // Per ogni gara trovata, lanciamo il worker specifico
+    const events = gareOggi.map((gara, index) => ({
+      name: "cycling/process.single.race",
+      data: { gara, index }
+    }));
 
+    if (events.length > 0) {
+      await step.sendEvent("dispatch-workers", events);
+    }
+
+    return { gareTrovate: events.length };
+  }
+);
+
+// --- FUNZIONE WORKER (Il processo della singola gara) ---
 export const cyclingProcessRaceFn = inngest.createFunction(
   { id: "cycling-worker", name: "RadioCiclismo — PCS Full Worker", concurrency: 1 },
   { event: "cycling/process.single.race" },
   async ({ event, step }) => {
-    const { gara, index } = event.data; // index serve per la rotazione stili
+    const { gara, index } = event.data;
     const raceSlug = slugify(gara.nome);
-    const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
+    
+    const sessionCookie = await step.run("get-cookie", async () => {
+        const res = await axios.post(`${RC_BASE}/api/admin/login`, 
+            { username: process.env.RC_USERNAME, password: process.env.RC_PASSWORD }
+        );
+        return (res.headers["set-cookie"] || []).find(c => c.includes("connect.sid"))?.split(";")[0] ?? "";
+    });
 
-    // --- STEP 1: SCRAPING RISULTATI ---
     const risultati = await step.run("scrape-pcs-results", async () => {
-      const cmd = `curl -s -L --http2 -H "User-Agent: Mozilla/5.0" "${PCS_BASE}${gara.url}"`;
-      const html = execSync(cmd).toString();
+      const html = execSync(`curl -s -L --http2 "${PCS_BASE}${gara.url}"`).toString();
       const $ = cheerio.load(html);
       const rows: any[] = [];
       $("table.results tbody tr").slice(0, 15).each((i, el) => {
@@ -63,52 +83,42 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     if (!risultati || risultati.length === 0) return { status: "no_results" };
 
-    // --- STEP 2: UPLOAD DATI TECNICI (CSV) ---
+    // Upload CSV
     await step.run("upload-csv-results", async () => {
       const rcGareRes = await axios.get(`${RC_BASE}/api/admin/races?status=approved`, { headers: { Cookie: sessionCookie } });
       const targetGara = rcGareRes.data.find((g: any) => normalizza(g.title).includes(normalizza(gara.nome).substring(0, 10)));
-      
       if (targetGara) {
-        const csv = generaCSV(risultati);
+        const header = "POSIZIONE,NOME,SQUADRA,TEMPO,DISTACCO,NAZIONE\n";
+        const rows = risultati.map(r => `${r.pos},"${r.nome}","${r.team}","${r.time || ""}","","IT"`).join("\n");
         const form = new FormData();
-        form.append("file", csv, { filename: `results-${raceSlug}.csv`, contentType: "text/csv" });
+        form.append("file", Buffer.from(header + rows), { filename: `results.csv`, contentType: "text/csv" });
         await axios.post(`${RC_BASE}/api/admin/races/${targetGara.id}/import-results`, form, {
           headers: { ...form.getHeaders(), Cookie: sessionCookie }
         });
-        return { status: "csv_uploaded", garaId: targetGara.id };
       }
-      return { status: "no_matching_race_in_db" };
     });
 
-    // --- STEP 3: GENERAZIONE ARTICOLO CON STILE ROTATIVO ---
-    const articoloAI = await step.run("gen-article-style", async () => {
+    // Articolo AI
+    const articoloAI = await step.run("gen-article", async () => {
       const stile = STILI_EDITORIALI[index % STILI_EDITORIALI.length];
-      const res = await (cyclingAgent as any).generateLegacy(
-        `Applica lo ${stile.prompt}. Gara: ${gara.nome}. Risultati: ${JSON.stringify(risultati.slice(0, 10))}.
-        Se non hai dati, scrivi "SKIP". Ritorna JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
-      );
+      const prompt = `Stile: ${stile.prompt}. Gara: ${gara.nome}. Risultati: ${JSON.stringify(risultati.slice(0, 8))}. Ritorna JSON {titolo, contenuto, excerpt, tags}.`;
+      const res = await (cyclingAgent as any).generateLegacy(prompt);
       return res?.object || res;
     });
 
-    // --- STEP 4: PUBBLICAZIONE SCHEDULATA ---
-    await step.run("publish-article", async () => {
-      if (!articoloAI || articoloAI === "SKIP" || articoloAI.contenuto?.length < 250) return { status: "skipped" };
-
-      const publishDate = new Date();
-      publishDate.setHours(publishDate.getHours() + 2);
-
+    // Pubblicazione
+    if (articoloAI && articoloAI !== "SKIP") {
       await axios.post(`${RC_BASE}/api/admin/articles`, {
         slug: `report-${raceSlug}-${Date.now()}`,
         title: articoloAI.titolo,
         content: articoloAI.contenuto,
         excerpt: articoloAI.excerpt || "",
-        author: "RadioCiclismo Reporter",
-        publishAt: publishDate.toISOString(),
-        hashtags: articoloAI.tags || ["#ciclismo"],
-        is_published: false
+        author: "RadioCiclismo AI",
+        publishAt: new Date(Date.now() + 7200000).toISOString(), // +2 ore
+        hashtags: articoloAI.tags || ["#ciclismo"]
       }, { headers: { Cookie: sessionCookie } });
-
-      return { status: "published_scheduled" };
-    });
+    }
+    
+    return { status: "completed" };
   }
 );
