@@ -4,7 +4,6 @@ import axios from "axios";
 
 const RC_BASE = "https://radiociclismo.com";
 
-// Helper per creare slug URL-friendly
 const slugify = (text: string) => 
   text.toString().toLowerCase()
     .replace(/\s+/g, '-')
@@ -21,6 +20,23 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
+// ✅ IMPORTANTE: Esportazione esplicita per evitare SyntaxError
+export const cyclingDispatchFn = inngest.createFunction(
+  { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
+  { event: "cycling/generate.article" },
+  async ({ step }) => {
+    // Qui puoi inserire la logica per recuperare le gare del giorno
+    const gare = [{ nome: "Esempio Gara Pro", id: "1" }]; 
+    for (const [index, gara] of gare.entries()) {
+      await step.sendEvent(`process-race-${index}`, {
+        name: "cycling/process.single.race",
+        data: { gara, index },
+      });
+    }
+    return { dispatched: gare.length };
+  }
+);
+
 export const cyclingProcessRaceFn = inngest.createFunction(
   { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
   { event: "cycling/process.single.race" },
@@ -31,15 +47,13 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo professionale per RadioCiclismo sulla gara: ${gara.nome}. 
-        Analizza tattica e distacchi. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+        `Scrivi un articolo professionale per RadioCiclismo: ${gara.nome}. Analizza tattica e distacchi. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
 
     await step.run(`publish-${raceSlug}`, async () => {
       if (articoloIT && sessionCookie) {
-        // Payload costruito esattamente sullo schema insertArticleSchema
         const payload = {
           slug: raceSlug,
           title: articoloIT.titolo || articoloIT.title,
@@ -52,14 +66,11 @@ export const cyclingProcessRaceFn = inngest.createFunction(
           images: [],
           hashtags: articoloIT.tags || [],
           author: "Claude Sonnet",
-          publishAt: new Date().toISOString() // Obbligatorio per lo schema
+          publishAt: new Date().toISOString()
         };
 
         await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-          headers: { 
-            Cookie: sessionCookie,
-            "Content-Type": "application/json"
-          }
+          headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
         });
       }
       return { success: true };
