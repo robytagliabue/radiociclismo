@@ -20,11 +20,16 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
+// 1. DISPATCHER: Invia le gare al worker
 export const cyclingDispatchFn = inngest.createFunction(
   { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
   { event: "cycling/generate.article" },
   async ({ step }) => {
-    const gare = [{ nome: "Esempio Gara Pro", id: "1" }]; 
+    // Qui andrebbe la logica di scraping PCS. Per ora usiamo i dati in ingresso o l'esempio.
+    const gare = [
+      { nome: "Gara Esempio Pro", id: "sample-1", details: "Dettagli della gara..." }
+    ]; 
+
     for (const [index, gara] of gare.entries()) {
       await step.sendEvent(`process-race-${index}`, {
         name: "cycling/process.single.race",
@@ -35,6 +40,7 @@ export const cyclingDispatchFn = inngest.createFunction(
   }
 );
 
+// 2. WORKER: Elabora la singola gara e pubblica con ritardo
 export const cyclingProcessRaceFn = inngest.createFunction(
   { id: "cycling-worker", name: "RadioCiclismo — PCS Worker", concurrency: 2 },
   { event: "cycling/process.single.race" },
@@ -45,40 +51,45 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo professionale per RadioCiclismo: ${gara.nome}. Non usare titoli generici come "test". RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+        `Scrivi un articolo professionale per RadioCiclismo sulla gara: ${gara.nome}. 
+        Dettagli: ${gara.details || ''}.
+        IMPORTANTE: Non usare titoli di test. Scrivi un pezzo giornalistico completo.
+        RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
 
     await step.run(`publish-${raceSlug}`, async () => {
-      if (!articoloIT || !sessionCookie) return { skipped: true };
+      // Controllo qualità: non pubblichiamo se il contenuto è scarso o assente
+      if (!articoloIT || !articoloIT.contenuto || articoloIT.contenuto.length < 100 || !sessionCookie) {
+        return { skipped: true, reason: "Contenuto non idoneo o sessione mancante" };
+      }
 
-      // CALCOLO RITARDO: Ora attuale + 2 ore
+      // PROGRAMMAZIONE: +2 ore
       const scheduledTime = new Date();
       scheduledTime.setHours(scheduledTime.getHours() + 2);
 
       const payload = {
-        slug: raceSlug,
-        title: articoloIT.titolo || "Articolo Ciclismo",
+        slug: `${raceSlug}-${Date.now()}`,
+        title: articoloIT.titolo || gara.nome,
         titleEn: "",
         excerpt: articoloIT.excerpt || "",
         excerptEn: "",
-        content: articoloIT.contenuto || "",
+        content: articoloIT.contenuto,
         contentEn: "",
         coverImageUrl: "",
         images: [],
-        hashtags: articoloIT.tags || [],
+        hashtags: articoloIT.tags || ["#ciclismo", "#procycling"],
         author: "Claude Sonnet",
-        publishAt: scheduledTime.toISOString() // Data programmata tra 2 ore
+        publishAt: scheduledTime.toISOString()
       };
 
       try {
-        // Invio al database (lo schema del tuo server mette isPublished: false di default)
         await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
           headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
         });
       } catch (err: any) {
-        console.error("ERRORE INVIO:", err.response?.data);
+        console.error("ERRORE PUBBLICAZIONE GARA:", err.response?.data);
         throw err;
       }
       return { success: true, scheduledFor: scheduledTime.toISOString() };
