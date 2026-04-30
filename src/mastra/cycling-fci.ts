@@ -163,14 +163,7 @@ async function isAlreadyPublished(titolo: string, cookie: string): Promise<boole
 // ─── Leggi gare FCI di oggi dal DB ───────────────────────────────────────────
 // Queste gare hanno già la classifica caricata dal CSV worker
 async function getGareFCIOggi(): Promise<GaraFCI[]> {
-  const oggi = new Date();
-  const ieri = new Date(oggi);
-  ieri.setDate(ieri.getDate() - 1);
-  const dateOggi = oggi.toISOString().split("T")[0];
-  const dateIeri = ieri.toISOString().split("T")[0];
-
-  // Cerca gare di oggi e ieri con risultati caricati dallo scraper FCI
-  // Usa upload_source = 'fci_scraper' per escludere inserimenti manuali
+  // Cerca gare degli ultimi 7 giorni con risultati caricati ma senza articolo ancora generato
   const res = await pool.query<{
     race_id: number;
     title: string;
@@ -192,12 +185,14 @@ async function getGareFCIOggi(): Promise<GaraFCI[]> {
        rr.rankings
      FROM races r
      JOIN race_results rr ON rr.race_id = r.id
-     WHERE DATE(r.start_date) IN ($1, $2)
+     WHERE r.start_date >= NOW() - INTERVAL '7 days'
+       AND r.start_date <= NOW()
+       AND r.status = 'approved'
+       AND r.article_generated_at IS NULL
        AND rr.upload_source = 'fci_scraper'
        AND rr.rankings IS NOT NULL
        AND jsonb_array_length(rr.rankings) > 0
-     ORDER BY r.start_date DESC, r.id`,
-    [dateOggi, dateIeri]
+     ORDER BY r.start_date DESC, r.id`
   );
 
   return res.rows
@@ -640,6 +635,25 @@ async function pubblicaArticolo(
   return { id: res.data?.id, success: true };
 }
 
+// ─── Marca gara come articolo generato su RC ─────────────────────────────────
+async function markArticleGenerated(
+  raceId: number,
+  articleId: string | number,
+  cookie: string
+): Promise<void> {
+  try {
+    await axios.patch(
+      `${RC_BASE}/api/admin/races/${raceId}/mark-article-generated`,
+      { articleId },
+      { headers: { "Content-Type": "application/json", Cookie: cookie } }
+    );
+    console.log(`[FCI] Gara ${raceId} marcata — articleId: ${articleId}`);
+  } catch (e: any) {
+    // Non bloccante — logga ma non interrompe il workflow
+    console.error(`[FCI] mark-article-generated fallito per gara ${raceId}:`, e.message);
+  }
+}
+
 // ─── Scraping bici.pro ────────────────────────────────────────────────────────
 function scrapaBiciProOggi(): BiciProArticolo[] {
   const html = fetchPage(BIPRO_URL);
@@ -832,6 +846,11 @@ export const fciWorkflowFn = inngest.createFunction(
             console.error("[FCI DB PUBBLICA] ❌", err.response?.status, JSON.stringify(err.response?.data));
             throw err;
           }
+        });
+
+        // A7 — Marca la gara come articolo generato (evita duplicati nei run futuri)
+        await step.run(`fci-db-mark-${gara.raceId}`, async () => {
+          await markArticleGenerated(gara.raceId, pub.id, sessionCookie);
         });
 
         garaReport.azioni.push(`✅ Articolo creato — ID: ${pub.id}`);
