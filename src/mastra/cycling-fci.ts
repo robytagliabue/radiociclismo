@@ -11,7 +11,24 @@ const slugify = (text: string) =>
     .replace(/\s+/g, '-')
     .replace(/[^\w-]+/g, '')
     .replace(/--+/g, '-');
-
+const STILI_EDITORIALI = [
+  {
+    id: "EPICO_NARRATORE",
+    prompt: "Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta. Usa dati reali. Se mancano dati storici, passa allo stile CRONISTA FLASH."
+  },
+  {
+    id: "SPECIALISTA_TECNICO",
+    prompt: "Stile LO SPECIALISTA TECNICO — Focus: tattica e momenti chiave (scatti, ventagli, salite). Zero aggettivi vuoti."
+  },
+  {
+    id: "FLASH_NEWS",
+    prompt: "Stile IL CRONISTA FLASH — Focus: fatti nudi e crudi. Perfetto per lettura rapida."
+  },
+  {
+    id: "TECH_GURU",
+    prompt: "Stile IL TECH-GURU — Focus: materiali e performance. Se mancano dati sui watt, passa a SPECIALISTA TECNICO."
+  }
+];
 function fetchPage(url: string): string {
   try {
     const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0" --compressed "${url}"`;
