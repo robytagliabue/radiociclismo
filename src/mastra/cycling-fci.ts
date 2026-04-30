@@ -1,40 +1,24 @@
-import { inngest, FCI_EVENT } from "../client.js";
+import { inngest } from "../client.js";
 import { cyclingAgent } from "./cyclingAgent.js"; 
 import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
+import FormData from "form-data";
 
 const RC_BASE = "https://radiociclismo.com";
+const PCS_BASE = "https://www.procyclingstats.com";
 
-const slugify = (text: string) => 
-  text.toString().toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w-]+/g, '')
-    .replace(/--+/g, '-');
+// --- LOGICA EDITORIALE STORICA ---
 const STILI_EDITORIALI = [
-  {
-    id: "EPICO_NARRATORE",
-    prompt: "Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta. Usa dati reali. Se mancano dati storici, passa allo stile CRONISTA FLASH."
-  },
-  {
-    id: "SPECIALISTA_TECNICO",
-    prompt: "Stile LO SPECIALISTA TECNICO — Focus: tattica e momenti chiave (scatti, ventagli, salite). Zero aggettivi vuoti."
-  },
-  {
-    id: "FLASH_NEWS",
-    prompt: "Stile IL CRONISTA FLASH — Focus: fatti nudi e crudi. Perfetto per lettura rapida."
-  },
-  {
-    id: "TECH_GURU",
-    prompt: "Stile IL TECH-GURU — Focus: materiali e performance. Se mancano dati sui watt, passa a SPECIALISTA TECNICO."
-  }
+  { id: "EPICO_NARRATORE", prompt: "Stile L'EPICO NARRATORE — Focus: resilienza e percorso dell'atleta. Se mancano dati storici, passa a CRONISTA FLASH." },
+  { id: "SPECIALISTA_TECNICO", prompt: "Stile LO SPECIALISTA TECNICO — Focus: tattica, scatti e gestione del ritmo. Zero aggettivi vuoti." },
+  { id: "FLASH_NEWS", prompt: "Stile IL CRONISTA FLASH — Focus: immediatezza, Top 10 e fatti nudi." },
+  { id: "TECH_GURU", prompt: "Stile IL TECH-GURU — Focus: materiali e performance. Se mancano dati tecnici, passa a SPECIALISTA TECNICO." }
 ];
-function fetchPage(url: string): string {
-  try {
-    const cmd = `curl -s -L --http2 --max-time 30 -H "User-Agent: Mozilla/5.0" --compressed "${url}"`;
-    return execSync(cmd, { maxBuffer: 15 * 1024 * 1024 }).toString();
-  } catch (e) { return ""; }
-}
+
+// Helper per normalizzazione e matching
+const slugify = (t: string) => t.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-');
+const normalizza = (n: string) => n.toLowerCase().replace(/\d{4}/g, "").replace(/[^a-z\s]/g, "").trim();
 
 async function getSessionCookie(): Promise<string> {
   try {
@@ -46,84 +30,85 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-export const fciWorkflowFn = inngest.createFunction(
-  { id: "fci-workflow", name: "RadioCiclismo — Nazionali e Giovanili", concurrency: 2 },
-  { event: FCI_EVENT },
-  async ({ step }) => {
+function generaCSV(risultati: any[]): Buffer {
+  const header = "POSIZIONE,NOME,SQUADRA,TEMPO,DISTACCO,NAZIONE\n";
+  const rows = risultati.map(r => `${r.pos},"${r.nome}","${r.team}","${r.time || ""}","${r.diff || ""}","IT"`).join("\n");
+  return Buffer.from(header + rows, "utf-8");
+}
+
+export const cyclingProcessRaceFn = inngest.createFunction(
+  { id: "cycling-worker", name: "RadioCiclismo — PCS Full Worker", concurrency: 1 },
+  { event: "cycling/process.single.race" },
+  async ({ event, step }) => {
+    const { gara, index } = event.data; // index serve per la rotazione stili
+    const raceSlug = slugify(gara.nome);
     const sessionCookie = await step.run("get-cookie", () => getSessionCookie());
 
-    const newsArticoli = await step.run("scrape-all-sources", async () => {
-      const items: any[] = [];
-      const sources = [
-        { name: "BiciPro", url: "https://bici.pro/news/giovani/" },
-        { name: "FCI Strada", url: "https://www.federciclismo.it/it/article-archive/98717172-e565-4965-b6ca-b830d6961633/" },
-        { name: "FCI Giovanile", url: "https://www.federciclismo.it/it/article-archive/25263677-7443-4161-9f93-4700d83296c0/" }
-      ];
-
-      for (const src of sources) {
-        const html = fetchPage(src.url);
-        if (!html) continue;
-        const $ = cheerio.load(html);
-        const container = src.name.includes("FCI") ? ".article-list .item, .news-list a" : "article";
-
-        $(container).each((i, el) => {
-          if (i < 2) {
-            const titolo = $(el).find("h2").text().trim() || $(el).text().trim();
-            const link = $(el).find("a").attr("href") || $(el).attr("href");
-            if (link && titolo.length > 15) {
-              items.push({ 
-                titolo, 
-                url: link.startsWith("http") ? link : `https://www.federciclismo.it${link}`, 
-                fonte: src.name 
-              });
-            }
-          }
+    // --- STEP 1: SCRAPING RISULTATI ---
+    const risultati = await step.run("scrape-pcs-results", async () => {
+      const cmd = `curl -s -L --http2 -H "User-Agent: Mozilla/5.0" "${PCS_BASE}${gara.url}"`;
+      const html = execSync(cmd).toString();
+      const $ = cheerio.load(html);
+      const rows: any[] = [];
+      $("table.results tbody tr").slice(0, 15).each((i, el) => {
+        rows.push({
+          pos: i + 1,
+          nome: $(el).find("td:nth-child(2)").text().trim(),
+          team: $(el).find("td:nth-child(3)").text().trim(),
+          time: $(el).find("td:nth-child(4)").text().trim()
         });
-      }
-      return items;
+      });
+      return rows;
     });
 
-    for (const art of newsArticoli) {
-      await step.run(`process-${art.titolo.substring(0,10)}`, async () => {
-        const htmlArt = fetchPage(art.url);
-        const corpo = cheerio.load(htmlArt)("article, .article-content").text().trim();
+    if (!risultati || risultati.length === 0) return { status: "no_results" };
 
-        // Salto immediato se il testo sorgente è povero
-        if (corpo.length < 300) return { skipped: "Source too short" };
+    // --- STEP 2: UPLOAD DATI TECNICI (CSV) ---
+    await step.run("upload-csv-results", async () => {
+      const rcGareRes = await axios.get(`${RC_BASE}/api/admin/races?status=approved`, { headers: { Cookie: sessionCookie } });
+      const targetGara = rcGareRes.data.find((g: any) => normalizza(g.title).includes(normalizza(gara.nome).substring(0, 10)));
+      
+      if (targetGara) {
+        const csv = generaCSV(risultati);
+        const form = new FormData();
+        form.append("file", csv, { filename: `results-${raceSlug}.csv`, contentType: "text/csv" });
+        await axios.post(`${RC_BASE}/api/admin/races/${targetGara.id}/import-results`, form, {
+          headers: { ...form.getHeaders(), Cookie: sessionCookie }
+        });
+        return { status: "csv_uploaded", garaId: targetGara.id };
+      }
+      return { status: "no_matching_race_in_db" };
+    });
 
-        const res = await (cyclingAgent as any).generateLegacy(
-          `Crea un articolo per RadioCiclismo da: ${art.titolo}. Testo: ${corpo}.
-          Se non puoi costruire un pezzo giornalistico valido, scrivi "SKIP".
-          RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
-        );
+    // --- STEP 3: GENERAZIONE ARTICOLO CON STILE ROTATIVO ---
+    const articoloAI = await step.run("gen-article-style", async () => {
+      const stile = STILI_EDITORIALI[index % STILI_EDITORIALI.length];
+      const res = await (cyclingAgent as any).generateLegacy(
+        `Applica lo ${stile.prompt}. Gara: ${gara.nome}. Risultati: ${JSON.stringify(risultati.slice(0, 10))}.
+        Se non hai dati, scrivi "SKIP". Ritorna JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+      );
+      return res?.object || res;
+    });
 
-        const articoloAI = res?.object || res;
-        
-        if (articoloAI && articoloAI !== "SKIP" && articoloAI.contenuto?.length > 250 && sessionCookie) {
-          const scheduledDate = new Date();
-          scheduledDate.setHours(scheduledDate.getHours() + 2);
+    // --- STEP 4: PUBBLICAZIONE SCHEDULATA ---
+    await step.run("publish-article", async () => {
+      if (!articoloAI || articoloAI === "SKIP" || articoloAI.contenuto?.length < 250) return { status: "skipped" };
 
-          const payload = {
-            slug: slugify(art.titolo),
-            title: articoloAI.titolo,
-            content: articoloAI.contenuto,
-            excerpt: articoloAI.excerpt,
-            author: "RadioCiclismo AI",
-            publishAt: scheduledDate.toISOString(),
-            hashtags: [...(articoloAI.tags || []), "#giovanili"],
-            titleEn: "", excerptEn: "", contentEn: "", coverImageUrl: "", images: []
-          };
+      const publishDate = new Date();
+      publishDate.setHours(publishDate.getHours() + 2);
 
-          try {
-            await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
-              headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
-            });
-          } catch (err) {
-            console.log("Salto: possibile duplicato.");
-          }
-        }
-      });
-    }
-    return { processed: newsArticoli.length };
+      await axios.post(`${RC_BASE}/api/admin/articles`, {
+        slug: `report-${raceSlug}-${Date.now()}`,
+        title: articoloAI.titolo,
+        content: articoloAI.contenuto,
+        excerpt: articoloAI.excerpt || "",
+        author: "RadioCiclismo Report",
+        publishAt: publishDate.toISOString(),
+        hashtags: articoloAI.tags || ["#ciclismo"],
+        is_published: false
+      }, { headers: { Cookie: sessionCookie } });
+
+      return { status: "published_scheduled" };
+    });
   }
 );
