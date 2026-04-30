@@ -20,17 +20,15 @@ async function getSessionCookie(): Promise<string> {
   } catch { return ""; }
 }
 
-// ✅ IMPORTANTE: Esportazione esplicita per evitare SyntaxError
 export const cyclingDispatchFn = inngest.createFunction(
   { id: "cycling-dispatch", name: "RadioCiclismo — PCS Dispatcher" },
   { event: "cycling/generate.article" },
   async ({ step }) => {
-    // Qui puoi inserire la logica per recuperare le gare del giorno
     const gare = [{ nome: "Esempio Gara Pro", id: "1" }]; 
     for (const [index, gara] of gare.entries()) {
       await step.sendEvent(`process-race-${index}`, {
         name: "cycling/process.single.race",
-        data: { gara, index },
+        data: { gara },
       });
     }
     return { dispatched: gare.length };
@@ -47,31 +45,37 @@ export const cyclingProcessRaceFn = inngest.createFunction(
 
     const articoloIT = await step.run(`gen-it-${raceSlug}`, async () => {
       const res = await (cyclingAgent as any).generateLegacy(
-        `Scrivi un articolo professionale per RadioCiclismo: ${gara.nome}. Analizza tattica e distacchi. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
+        `Scrivi un articolo per RadioCiclismo: ${gara.nome}. RITORNA JSON: { "titolo": "", "contenuto": "", "excerpt": "", "tags": [] }`
       );
       return res?.object || res;
     });
 
     await step.run(`publish-${raceSlug}`, async () => {
-      if (articoloIT && sessionCookie) {
-        const payload = {
-          slug: raceSlug,
-          title: articoloIT.titolo || articoloIT.title,
-          titleEn: null,
-          excerpt: articoloIT.excerpt,
-          excerptEn: null,
-          content: articoloIT.contenuto || articoloIT.content,
-          contentEn: null,
-          coverImageUrl: null,
-          images: [],
-          hashtags: articoloIT.tags || [],
-          author: "Claude Sonnet",
-          publishAt: new Date().toISOString()
-        };
+      if (!articoloIT || !sessionCookie) return { skipped: true };
 
+      const payload = {
+        slug: raceSlug,
+        title: articoloIT.titolo || "Senza Titolo",
+        titleEn: "", // Usiamo stringa vuota invece di null per sicurezza
+        excerpt: articoloIT.excerpt || "",
+        excerptEn: "",
+        content: articoloIT.contenuto || "",
+        contentEn: "",
+        coverImageUrl: "",
+        images: [],
+        hashtags: articoloIT.tags || [],
+        author: "Claude Sonnet",
+        publishAt: new Date().toISOString()
+      };
+
+      try {
         await axios.post(`${RC_BASE}/api/admin/articles`, payload, {
           headers: { Cookie: sessionCookie, "Content-Type": "application/json" }
         });
+      } catch (err: any) {
+        // Questo log ti dirà l'errore esatto di Zod nei log di Railway
+        console.error("DETTAGLIO ERRORE 400:", err.response?.data);
+        throw err;
       }
       return { success: true };
     });
