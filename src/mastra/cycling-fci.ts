@@ -55,6 +55,7 @@ interface GaraFCI {
   startDate: string;
   location: string;
   slug: string;
+  fciRaceId: string | null;
   rankings: RaceRanking[];
 }
 
@@ -162,8 +163,14 @@ async function isAlreadyPublished(titolo: string, cookie: string): Promise<boole
 // ─── Leggi gare FCI di oggi dal DB ───────────────────────────────────────────
 // Queste gare hanno già la classifica caricata dal CSV worker
 async function getGareFCIOggi(): Promise<GaraFCI[]> {
-  const oggi = new Date().toISOString().split("T")[0];
+  const oggi = new Date();
+  const ieri = new Date(oggi);
+  ieri.setDate(ieri.getDate() - 1);
+  const dateOggi = oggi.toISOString().split("T")[0];
+  const dateIeri = ieri.toISOString().split("T")[0];
 
+  // Cerca gare di oggi e ieri con risultati caricati dallo scraper FCI
+  // Usa upload_source = 'fci_scraper' per escludere inserimenti manuali
   const res = await pool.query<{
     race_id: number;
     title: string;
@@ -171,23 +178,26 @@ async function getGareFCIOggi(): Promise<GaraFCI[]> {
     start_date: Date;
     location: string;
     slug: string;
+    fci_race_id: string | null;
     rankings: RaceRanking[];
   }>(
     `SELECT
-       r.id          AS race_id,
+       r.id            AS race_id,
        r.title,
        r.category,
        r.start_date,
        r.location,
        r.slug,
+       r.fci_race_id,
        rr.rankings
      FROM races r
      JOIN race_results rr ON rr.race_id = r.id
-     WHERE DATE(r.start_date) = $1
+     WHERE DATE(r.start_date) IN ($1, $2)
+       AND rr.upload_source = 'fci_scraper'
        AND rr.rankings IS NOT NULL
-       AND jsonb_array_length(rr.rankings::jsonb) > 0
-     ORDER BY r.id`,
-    [oggi]
+       AND jsonb_array_length(rr.rankings) > 0
+     ORDER BY r.start_date DESC, r.id`,
+    [dateOggi, dateIeri]
   );
 
   return res.rows
@@ -202,6 +212,7 @@ async function getGareFCIOggi(): Promise<GaraFCI[]> {
       startDate: row.start_date.toISOString().split("T")[0],
       location: row.location || "",
       slug: row.slug,
+      fciRaceId: row.fci_race_id ?? null,
       rankings: ((row.rankings || []) as RaceRanking[]).filter(
         (r) => r.status === "classified"
       ),
@@ -779,7 +790,8 @@ export const fciWorkflowFn = inngest.createFunction(
 
         // A2 — Incrocio con API races RC (verifica CSV worker)
         const rcMatch = await step.run(`fci-db-rc-match-${gara.raceId}`, async () => {
-          const m = await incrociaCongRC(gara.title, sessionCookie);
+          // Passa fciRaceId per match deterministico prima del fuzzy
+          const m = await incrociaCongRC(gara.title, sessionCookie, gara.fciRaceId);
           console.log(`[FCI DB] "${gara.title}" in RC: ${m.found}, hasResults: ${m.hasResults}`);
           return m;
         });
