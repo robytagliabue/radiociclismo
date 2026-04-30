@@ -9,17 +9,14 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.1.0",
-    "@mastra/core": "latest",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.7.10",
     "inngest": "^3.29.0",
     "tsx": "^4.19.3",
     "ai": "^4.3.16",
-    "@ai-sdk/google": "^1.2.19",
     "zod": "^3.24.3",
     "axios": "^1.8.4",
     "pg": "^8.13.3",
-    "form-data": "^4.0.1",
     "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
