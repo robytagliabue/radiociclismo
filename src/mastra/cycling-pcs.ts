@@ -16,6 +16,12 @@ import { z } from "zod";
 import axios from "axios";
 import { execSync } from "child_process";
 import * as cheerio from "cheerio";
+import {
+  incrociaCongRC,
+  markArticleGenerated,
+  isArticleExistsForRace,
+  resetRCRacesCache,
+} from "./rcUtils.js";
 
 const RC_BASE = "https://radiociclismo.com";
 const PCS_BASE = "https://www.procyclingstats.com";
@@ -51,21 +57,7 @@ async function getSessionCookie(): Promise<string> {
   return cookies[0]?.split(";")[0] ?? "";
 }
 
-// ─── Deduplicazione articoli RC ───────────────────────────────────────────────
-async function isAlreadyPublished(titolo: string, cookie: string): Promise<boolean> {
-  try {
-    const res = await axios.get(
-      `${RC_BASE}/api/admin/articles?search=${encodeURIComponent(titolo.substring(0, 30))}&limit=5`,
-      { headers: { Cookie: cookie } }
-    );
-    const articles = res.data?.articles ?? res.data ?? [];
-    return articles.some((a: any) =>
-      a.title?.toLowerCase().includes(titolo.toLowerCase().substring(0, 20))
-    );
-  } catch {
-    return false;
-  }
-}
+// Deduplicazione e match RC importati da rcUtils.ts
 
 // ─── Narrativa esterna da cyclingpro.net (contesto extra per l'AI) ────────────
 async function fetchRaceNarrative(raceName: string): Promise<string> {
@@ -250,6 +242,9 @@ export const cyclingDispatchFn = inngest.createFunction(
       return cookie;
     });
 
+    // Reset cache gare RC — ogni run Inngest è fresh
+    resetRCRacesCache();
+
     // Leggi calendario PCS di oggi E ieri (copertura gare finite tardi)
     const gareOggi = await step.run("pcs-fetch-calendar", async () => {
       const oggi = new Date();
@@ -338,14 +333,28 @@ export const cyclingProcessRaceFn = inngest.createFunction(
     }
 
 
-    // W1 — Deduplicazione (evita di riprocessare se già pubblicato)
-    const giaPresente = await step.run("pcs-check-dup", async () => {
-      return await isAlreadyPublished(gara.name, sessionCookie);
+    // W1 — Incrocio con RC races (trova raceId + verifica se articolo già esiste)
+    const rcMatch = await step.run("pcs-rc-match", async () => {
+      const m = await incrociaCongRC(gara.name, sessionCookie);
+      console.log(`[PCS WORKER] "${gara.name}" in RC: ${m.found}, hasArticle: ${m.alreadyHasArticle}`);
+      return m;
     });
 
-    if (giaPresente) {
-      console.log(`[PCS WORKER] "${gara.name}" già pubblicata — skip`);
-      return { status: "skipped", race: gara.name };
+    // Se la gara ha già un articolo generato → skip deterministico
+    if (rcMatch.alreadyHasArticle) {
+      console.log(`[PCS WORKER] "${gara.name}" già articolata — skip`);
+      return { status: "skipped_already_has_article", race: gara.name };
+    }
+
+    // Fallback: controlla per slug RC se trovata
+    if (rcMatch.found && rcMatch.slug) {
+      const giaPresente = await step.run("pcs-check-slug", async () =>
+        await isArticleExistsForRace(rcMatch.slug!, sessionCookie)
+      );
+      if (giaPresente) {
+        console.log(`[PCS WORKER] "${gara.name}" articolo trovato per slug — skip`);
+        return { status: "skipped_slug", race: gara.name };
+      }
     }
 
     // W2 — Narrativa esterna (cyclingpro.net) — fallback silenzioso se non disponibile
@@ -404,6 +413,13 @@ export const cyclingProcessRaceFn = inngest.createFunction(
         throw err;
       }
     });
+
+    // W8 — Marca la gara come articolo generato (evita duplicati nei run futuri)
+    if (rcMatch.found && rcMatch.raceId) {
+      await step.run("pcs-mark-generated", async () => {
+        await markArticleGenerated(rcMatch.raceId!, pub.id, sessionCookie);
+      });
+    }
 
     console.log(`[PCS WORKER] ✅ "${gara.name}" — ID: ${pub.id}`);
     return { status: "success", race: gara.name, articleId: pub.id };
